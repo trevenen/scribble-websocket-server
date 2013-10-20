@@ -7,6 +7,7 @@
 GO THROUGH EVERY POINTER DECLARATION AND SET TO NULL
 
 */
+
 ListenerClass::ListenerClass ( ) {
 	try {
 		config.load("config/config.lua");
