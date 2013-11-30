@@ -9,8 +9,8 @@ using namespace std;
 int main ( ) { 
 	WSProtocol * protocolTest = new RFC_6455();
 	WSAttributes attributes;
-	string exampleInput = "GET /chat HTTP/1.1\r\nHost: server.example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nOrigin: http://example.com\r\nSec-WebSocket-Protocol: chat, superchat\r\nSec-WebSocket-Version: 13";
-	string exampleResponse = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n";
+	string exampleInput = "GET /chat HTTP/1.1\r\nHost: server.example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nOrigin: http://example.com\r\nSec-WebSocket-Protocol: chat\r\nSec-WebSocket-Version: 13";
+	string exampleResponse = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\nSec-WebSocket-Protocol: chat\r\n\r\n";
 
 	int verCheck = protocolTest->handshake( exampleInput , &attributes );
 	
@@ -18,6 +18,7 @@ int main ( ) {
 	cout<<"Version Check Passed..."<<endl;
 	assert ( attributes.channel.compare("chat") == 0 );
 	cout<<"Channel Check Passed..."<<endl;
+	cout<<attributes.response<<std::endl;
 	assert ( exampleResponse.compare(attributes.response) == 0 );
 	cout<<"Handshake Passed..."<<endl;
 	/*
@@ -119,11 +120,6 @@ int main ( ) {
 	std::cout << "--testing decoding of fragmented packet...";
 	assert ( exampleWSMessage_long_split_payload.compare ( protocolTest->decode ( exampleWSMessage_long_split_1+exampleWSMessage_long_split_2 ) ) == 0 );
 	std::cout << "ok" <<std::endl;
-
-	std::cout << "Case 13...testing....long fragmented incomplete packet" << std::endl;
-	std::cout << "--testing (1/2) fragment of packet...";
-	assert ( protocolTest->packetComplete ( exampleWSMessage_incomplete_split_1 ) == 0 );
-	std::cout << "ok" << std::endl;
 
 	return 0;
 }
