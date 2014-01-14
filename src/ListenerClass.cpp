@@ -2,204 +2,165 @@
 #include "./common/Logger.h"
 #include <cstdio>
 
-/*
 
-GO THROUGH EVERY POINTER DECLARATION AND SET TO NULL
+ListenerClass::ListenerClass ( SafeData<IOMsg> * inQ ) : m_inqueue(inQ) {
 
-*/
-
-ListenerClass::ListenerClass ( ) {
-	try {
-		config.load("config/config.lua");
-		
-		//Load in config file values	
-		config.focusVar ( "config" );
-		
-		queue = config.getTableValue_int("connection_queue");
-		maxSelectors = config.getTableValue_int("channel_selectors");
-		elapseUpdateCheck = config.getTableValue_int("script_update_delay");
-		port = config.getTableValue_int("port");
-
-		appDB.connect ( config.getTableValue_str("db_host") , 
-				config.getTableValue_str("db_username") , 
-				config.getTableValue_str("db_password") , 
-				config.getTableValue_str("db_database") );
-		
-		status = 1;
-		Start(this);
-	} catch ( const char * e ) {
-		std::cout<<"Listener: "<<e<<std::endl;
-		std::exit ( 0 );
-	}
 }
 
 ListenerClass::~ListenerClass ( ) {
-	Wait();
-	
-	for ( int i = 0; i < maxSelectors; i ++ ) {
-		chselect[i]->Wait();
-		delete chselect[i];
-	}
-
-
-	std::map<std::string, Channel* >::iterator it = channels.begin();
-	for ( ; it != channels.end(); it ++ ) {
-		it->second->Wait();
-	}
-	channels.clear();
 
 }
 
 void ListenerClass::setStatus ( int s ) {	
-	for ( int i = 0; i < maxSelectors; i ++ ) {
-		chselect[i]->setStatus ( s );
-	}
-
-	std::map<std::string, Channel* >::iterator it = channels.begin();
-	
-	for ( ; it != channels.end(); it ++ ) {
-		it->second->setStatus ( s );
-	}
-	
-	status = s;
+	m_status = s;
 }
 
-void ListenerClass::handleConnection(int desc){
+void ListenerClass::handleConnection ( int socket_fd ){
 	try{
-		//Create special socket for protocol version
-		//Send it to the waiting line so it can be sent to the correct channel.
-		connectionsWaiting.lock ();
-		connectionsWaiting.insert ( desc );
-		connectionsWaiting.unlock ();
-		connectionsWaiting.signal ();
-	}catch(LogString e){
-		Log("Listener: "+ e);
+		IOMsg packet;
+		packet.setConnectionID ( socket_fd );
+		// Let IOParser recv the data to distribute work load
+		m_inqueue->push ( packet );
+		m_inqueue->signal ( ); // Signal workers
+	} catch ( LogString &e ) {
+		Logit ( "Listener: " + e );
 	}
 }
 
-void ListenerClass::Setup(){
+void ListenerClass::start ( int listening_port ) {
 	try{
-		//select apps.*, users.* from apps left join assoc on assoc.appid = apps.appid left join users on users.userid = assoc.userid
-		if ( !appDB.query ( "select * from apps" ) ) {
-			throw "Query error occured.";
+		m_status = 1;
+		m_port = listening_port;
+		setup ( );
+		run ( );
+	} catch ( LogString &e ) {
+		Logit ( "Listener: " + e );
+	}
+}
+
+void ListenerClass::setup ( ) {
+	try{
+		// setup maximum events
+		m_events_list.resize ( max_proc_events );
+		
+		// setup maximum connections
+		// connections.resize ( max_connections );
+
+		m_event_fd = epoll_create1 ( 0 );//10 Doesn't mean anything after Linux Kern 2.6.8
+		
+		if ( m_event_fd < 0 ) {
+			throw LogString("Unable to create an epoll nest");
 		}
 
+		if ( !m_listener_socket.bind(m_port) ) {
+			throw LogString("Unable to bind port");
+		}
 		
-		while ( appDB.hasNext ( ) ) {
-			std::vector<std::string> l = appDB.next ( );
-			AppDB appMDB;
-			appMDB.auth = atoi(l[4].c_str());
-			appMDB.host = l[5];
-			appMDB.dbname = l[6];
-			appMDB.username = l[7];
-			appMDB.password = l[8];
+		if ( !m_listener_socket.listen(m_queue) ) {
+			throw LogString("Unable to listen on port");
+		}
+
+		// m_listener_socket.setNonBlocking ( );
+		// qm_listener_socket.setTimeout ( m_listener_socket.getSocket() , 25 , 0 );
+		
+		// Add in listener socket into epoll list for new connections
+		addConnection ( m_listener_socket.getSocket ( ) );
+		
+		Logit ( "Listener: Starting" );
+	} catch ( LogString &e ) {
+		Logit ( "Listener: " + e );
+		std::exit ( 0 );
+	}
+}
+
+void ListenerClass::run ( ) {
+	try{
+		int incoming_fd;
+
+		Logit ( "Listener: Started" );
+		std::cout << "Listener: Started" << std::endl;
+		
+		// Leave running while in running status
+		while ( m_status ) {
 			
-
-			channels.insert ( channels.begin(), std::pair <std::string, Channel* > ( l[2], new Channel ( atoi(l[0].c_str()), l[9].c_str(), l[1], appMDB , l[3] , 1000 ) ) ); 			
-		}
-
-		chselect = (ChannelSelector**) malloc ( sizeof(ChannelSelector*) * maxSelectors );
-		for ( int i = 0; i < maxSelectors; i ++ ) {
-			chselect[i] = new ChannelSelector ( &connectionsWaiting, &channels );
-		}
-
-		if ( !listenerSocket.bind(port) ) {
-			Log ( "Unable to bind port" );
-			throw "Unable to bind port";
-		}
-		if ( !listenerSocket.listen(queue) ) {
-			Log ("Unable to listen on port" );
-			throw "Unable to listen on port";
-		}
-		
-		listenerSocket.setTimeout ( listenerSocket.getSocket(), 25, 0 );
-		Log("Listener: Starting");
-
-		
-	}catch(const char * e){
-		Log("Listener: " + std::string(e));
-		std::exit(0);
-	}
-}
-
-void ListenerClass::Execute(void * arg){
-	try{
-		Log("Listener: Started");
-		while ( status ) {
-			//Check for updated scripts and new channels.
-			checkForUpdates ( );
-
-			//Call doBeat to tell LUA Scripts to call onBeat
-			doBeat ( );
+			m_events_occuring = epoll_wait ( m_event_fd , m_events_list.data ( ) , m_events_list.size ( ) , -1);
 			
-			if ( ( incomingFD = listenerSocket.accept() ) > 0) {
-				Log("Listener: New Connection");
-				handleConnection(incomingFD);
+			// make sure there are events
+			if ( m_events_occuring <= 0 ) {
+				  continue;
 			}
-		}
-	}catch(const char * e){
-		Log("Listener: " + std::string(e));
-		std::exit(0);
-	}
-}
-
-void ListenerClass::doBeat ( ) {
-	std::map<std::string, Channel*>::iterator it = channels.begin();
-	for ( ; it != channels.end ();it ++ ) {
-		it->second->doBeat();
-	}
-}
-
-int ListenerClass::checkForUpdates ( ) {
-	try {
-		time_t time_now = time(NULL);
-		if ( difftime ( time_now, lastUpdateCheck ) > elapseUpdateCheck ) {
-			lastUpdateCheck = time_now;
-			if ( !appDB.query ( "select * from apps" ) ) {
-				throw "Query error occured.";
-			}
-
-			while ( appDB.hasNext ( ) ) {
-				AppDB appMDB;
-				std::vector<std::string> l = appDB.next ( );
-				std::map<std::string,Channel*>::iterator it;
-				if ( ( it = channels.find ( l[2] ) ) != channels.end () ) {
-					if ( it->second->currentScript().compare ( l[3] ) != 0 ) {
-						Log ( "Listener: Update was found for " + l[2] );
-						it->second->updateScript ( l[3] );
+			
+			for ( int ce = 0 ; ce < m_events_occuring ; ce++ ) {
+				// Wrap the descriptor within the TCPClient class so we can organize our calls
+				TCPClient tmp_sock(m_events_list[ce].data.fd);
+			
+				if ( tmp_sock.getSocket() == m_listener_socket.getSocket() ) {
+					if ( ( incoming_fd = m_listener_socket.accept() ) > 0) {
+						// Logit ( "Listener: New Connection." );
+						addConnection ( incoming_fd );
+						
 					}
+				} else 
+				// Peek to see if a disconnection occurred.
+				if ( !tmp_sock.peek ( ) ) {
+					// Logit ( "Listener: Disconnection" );
+					removeConnection ( tmp_sock.getSocket () );
 				} else {
-					appMDB.auth = atoi(l[4].c_str());
-					appMDB.host = l[5];
-					appMDB.dbname = l[6];
-					appMDB.username = l[7];
-					appMDB.password = l[8];
-					channels.insert ( channels.begin(), std::pair <std::string, Channel* > ( l[2], new Channel ( atoi(l[0].c_str()), l[9].c_str(), l[1], appMDB, l[3] , 1000 ) ) ); 
-				}			
+					// Logit ( "Listener: Recv data" );
+					handleConnection ( tmp_sock.getSocket() );
+				}
 			}
 		}
-
-		return 1;
-	} catch ( const char * e ) {
-		Log ( "Listener: CHECKFORUPDATES ERROR " + std::string(e)) ;
-		return 0;
+	} catch ( LogString &e ) {
+		Logit ( "Listener: " + e );
+		//...hmmm this might not be the best way to handle?
+		std::exit ( 0 );
 	}
 }
 
-std::string ListenerClass::availableChannels ( ) {
-	std::string ret = "";
-	std::map<std::string, Channel*>::iterator it = channels.begin();
-	for ( ; it != channels.end ();it ++ ) {
-		ret += it->second->getName ( ) + "\n";
+void ListenerClass::addConnection ( int socket_fd ) {
+	try {
+		//Check to see if max connections has been reached.
+		int retEv = 0;
+
+		//TCPClient tmp_sock ( socket_fd );
+		//tmp_sock.setNonBlocking ( );
+
+		m_ev.events = EPOLLIN | EPOLLET;
+		m_ev.data.fd = socket_fd;
+
+		if((retEv = epoll_ctl(m_event_fd, EPOLL_CTL_ADD, socket_fd, &m_ev))!=0) {
+			throw LogString ( "Unable to add connection" );
+		}
+		
+		if ( socket_fd == m_listener_socket.getSocket() ) {
+			Logit ( "Listener added to epoll.");
+			return;
+		}
+
+		//Pass around new connection to system
+		IOMsg packet ( socket_fd , CONNECTED );
+		m_inqueue->push ( packet );
+		m_inqueue->signal ( ); // Signal workers
+
+		//Logit ( "Connection has been added" );
+	} catch ( LogString &e ) { 
+		Logit("Listener: "+ e);
 	}
-	return ret;
 }
 
-int ListenerClass::usersConnected ( ) {
-	int users = 0;
-	std::map<std::string, Channel*>::iterator it = channels.begin();
-	for ( ; it != channels.end ();it ++ ) {
-		users += it->second->usersConnected ( );
+void ListenerClass::removeConnection ( int socket_fd ) {
+	try {
+		
+		if ( epoll_ctl ( m_event_fd , EPOLL_CTL_DEL , socket_fd , NULL ) > 0 ){
+			throw LogString ( "Unable to remove connection" );
+		}
+
+		// Disconnect socket around the server
+		IOMsg packet ( socket_fd , DISCONNECTED );
+		m_inqueue->push ( packet );
+		m_inqueue->signal ( ); // Signal workers
+	} catch ( LogString &e ) {
+		Logit ( "Listener: " + e );
 	}
-	return users;
 }

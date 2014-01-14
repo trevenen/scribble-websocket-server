@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include "Logger.h"
+
 class ThreadClass{
 	public:
 		ThreadClass();

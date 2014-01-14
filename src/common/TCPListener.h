@@ -1,7 +1,6 @@
-#include "SocketClass.h"
-
 #ifndef TCP_LISTENER_HEADER
 #define TCP_LISTENER_HEADER
+#include "SocketClass.h"
 
 class TCPListener : public SocketClass {
 	public:

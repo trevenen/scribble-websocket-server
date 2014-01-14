@@ -13,7 +13,8 @@ int RFC_6455::handshake (const std::string input, WSAttributes * response) {
 	/*Create Server Response*/
 	std::string GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 	std::string handshake = "HTTP/1.1 101 Switching Protocols\r\n";
-	
+	response->response.clear ( );
+
 	/*Grab Version*/
 	if ( input.compare("") == 0 ) return -1;
 	std::string versionLookupStart ="Sec-WebSocket-Version: ";
@@ -32,9 +33,15 @@ int RFC_6455::handshake (const std::string input, WSAttributes * response) {
 	std::string protocolLookupStart = "Sec-WebSocket-Protocol: ";
 	std::string protocolLookupEnd = "\r\n";
 	int protocolStart = input.find ( protocolLookupStart );
-	int protocolEnd = input.find ( protocolLookupEnd , protocolStart );
-	std::string protocol = input.substr ( protocolStart + protocolLookupStart.length ( ) , protocolEnd - ( protocolStart + protocolLookupStart.length ( ) ) );
+	int protocolEnd = -1;
+	std::string protocol = "";
 
+	if ( protocolStart !=std::string::npos ) {
+		protocolEnd = input.find ( protocolLookupEnd , protocolStart );
+		protocol = input.substr ( protocolStart + protocolLookupStart.length ( ) , protocolEnd - ( protocolStart + protocolLookupStart.length ( ) ) );
+		//std::cout << "Protocol: " << protocol << std::endl;
+	}
+	
 	std::string keyLookupStart = "Sec-WebSocket-Key: ";
 	std::string keyLookupEnd = "\r\n";
 	int keyStart = input.find( keyLookupStart );
@@ -65,9 +72,13 @@ int RFC_6455::handshake (const std::string input, WSAttributes * response) {
 	//Base64 a string that is 20 bytes long
 	handshake += base64_encode(longDigest, 20 );
 	handshake += keyLookupEnd;
-	handshake += protocolLookupStart + protocol;
-    
-	response->response += handshake + "\r\n\r\n";
+
+	//Add Protocol into handshake if necessary.
+	if ( !protocol.empty ( ) ) {
+		handshake += protocolLookupStart + protocol;
+    }
+
+	response->response = handshake + "\r\n\r\n";
 
 	return 0;
 }

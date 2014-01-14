@@ -1,10 +1,10 @@
+#ifndef MYSQL_HEADER
+#define MYSQL_HEADER
 #include <iostream>
 #include <string>
 #include <vector>
 #include <mysql/mysql.h>
 #include "../common/Logger.h"
-#ifndef MYSQL_HEADER
-#define MYSQL_HEADER
 class MySQL { 
 	public:
 		MySQL ( );

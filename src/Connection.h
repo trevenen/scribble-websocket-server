@@ -1,34 +1,45 @@
-#include <iostream>
-#include <string>
-#include "./common/TCPClient.h"
-#include "./protocols/WSProtocol.h"
-
 #ifndef CONNECTION_HEADER
 #define CONNECTION_HEADER
+#include <iostream>
+#include <string>
+#include <cstring>
+#include "./common/TCPClient.h"
+#include "./protocols/WSProtocol.h"
+#include "./protocols/rfc_6455/RFC_6455.h"
+#include "./IOMsg.h"
+
+const int max_recv_size = 1024; // maximum receive size: 65535 (MAX SHORT)
+
+enum ConnectionState { 
+	NEW,
+	PENDING,
+	READY
+};
 
 class Connection {
 	public:
-		Connection(int, WSProtocol*);
-		~Connection();
-		
-		int getSocket();
-		std::string getSocket_str ( );
-		std::string getID ( );
+		Connection ( );
+		~Connection ( );
 
-		int recv ( void * buffer, size_t len );
-		int send ( const void * buffer, size_t len );
-		int close ( );
+		void setConnection ( int );
+		void setConnection ( TCPClient );
+		void setState ( ConnectionState );
+		ConnectionState getState ( );
+
+		void reset ( );
+
+		TCPClient& getConnection ( );
+
+		// It can contain other protocols... but
+		WSProtocol& getProtocol ( );
+		int handleHandshake ( IOMsg& );
+
+		std::string getChannel ( );
+
+		int decodedRecv ( IOMsg& );
+		int encodedSend ( const char * buffer , int size );
 		
-		int handshake ( std::string, WSAttributes * );
-		std::string decode ( const std::string );
-		std::string encode ( const std::string );
-		
-		unsigned long packetLength ( const std::string );
-		int packetComplete ( const std::string );
-		int appendBuffer ( const std::string );
-		int setBuffer ( const std::string );
-		
-		const std::string getBuffer ( );
+		/*		
 		inline static void gen_random(char *s, const int len) {
 		    static const char alphanum[] =
 		        "0123456789"
@@ -41,13 +52,15 @@ class Connection {
 
 		    s[len] = 0;
 		}
-	private:
-		std::string uniqueID;
-		std::string buffer;
-		
-		TCPClient socket;
-		WSProtocol * protocol;
+		*/
 
+	private:
+		//std::string uniqueID;
+		TCPClient m_connection;
+		RFC_6455 m_protocol;
+		std::string m_channel;
+
+		ConnectionState m_state;
 };
 
 #endif

@@ -27,8 +27,7 @@ int SemClass::wait(){
 	return sem_wait ( &s );
 }
 
-int SemClass::timedWait ( long nano_sec, time_t sec ) {
-	timespec t = { sec, nano_sec  };
+int SemClass::timedWait ( struct timespec t ) {
 	return sem_timedwait ( &s,  &t );
 }
 

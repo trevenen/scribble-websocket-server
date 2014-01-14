@@ -1,3 +1,5 @@
+#ifndef SOCKET_CLASS_HEADER
+#define SOCKET_CLASS_HEADER
 #include <cstdlib>
 #include <cstring>
 #include <sys/socket.h>
@@ -11,9 +13,6 @@
 #include <sstream>
 #include "Logger.h"
 
-#ifndef SOCKET_CLASS_HEADER
-#define SOCKET_CLASS_HEADER
-
 class SocketClass { 
 	public:
 		SocketClass ( );
@@ -22,7 +21,7 @@ class SocketClass {
 		int close (  );
 		int getSocket ( );
 		std::string getSocket_str ( );
-		void setNonBlocking ( int );
+		void setNonBlocking ( );
 		void setTimeout ( int , int , int );
 	protected:
 		int tcpSocket ( );

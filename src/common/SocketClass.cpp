@@ -5,7 +5,8 @@ SocketClass::SocketClass ( ) {
 }
 
 SocketClass::~SocketClass ( ) {
-	close ( );
+	// Removed because it would close on a block finish.
+	//close ( );
 }
 
 int SocketClass::close ( ) {
@@ -31,20 +32,20 @@ int SocketClass::newSocket ( int socket_family, int socket_type, int protocol ) 
 			throw LogString ( "Unable to create a new socket" );
 		}
 		return socketDesc;
-	} catch ( LogString e ) {
-		Log ( "Socket: " + e );
+	} catch ( LogString &e ) {
+		Logit ( "Socket: " + e );
 		return -1;
 	}
 
 }
 
-void SocketClass::setNonBlocking (int desc) {
+void SocketClass::setNonBlocking ( ) {
 	try{
-		if(fcntl(desc,F_SETFL,O_NONBLOCK)<0) {
+		if(fcntl(socketDesc,F_SETFL,O_NONBLOCK)<0) {
 			throw LogString("Unable to set non-blocking");
 		}
-	}catch(LogString e){
-		Log("Socket: " + e);
+	}catch(LogString &e){
+		Logit("Socket: " + e);
 	}
 
 }
@@ -61,8 +62,8 @@ void SocketClass::setTimeout ( int desc, int sec, int usec ) {
 	    	if (setsockopt (desc, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout,
 		        sizeof(timeout)) < 0)
 			throw("setsockopt failed\n");
-	}catch(LogString e){
-		Log("Socket: " + e);
+	}catch(LogString &e){
+		Logit("Socket: " + e);
 	}
 }
 

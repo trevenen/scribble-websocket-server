@@ -1,72 +1,120 @@
 #include "Connection.h"
 
-Connection::Connection(int desc, WSProtocol * proto) : socket ( desc ) {
-	protocol = proto;
-	char randstr[11];
-	gen_random ( randstr, 10 );
-	uniqueID = randstr;
-	buffer = "";
+Connection::Connection ( ) {
+	m_state = NEW;
+}
+
+Connection::~Connection ( ) {
 
 }
 
-Connection::~Connection() {
-	delete protocol;
+void Connection::setConnection ( int socket_fd ) {
+	m_state = PENDING;
+	m_connection = TCPClient ( socket_fd );
 }
 
-int Connection::getSocket ( ) {
-	return socket.getSocket ( );
+void Connection::setConnection ( TCPClient connection ) {
+	m_state = PENDING;
+	m_connection = connection;
 }
 
-std::string Connection::getID ( ) {
-	return uniqueID;
+void Connection::setState ( enum ConnectionState state ) {
+	m_state = state;
 }
 
-std::string Connection::getSocket_str ( ) {
-	return socket.getSocket_str ( );
+void Connection::reset ( ) {
+	m_state = NEW;
+	m_connection.close ( );
 }
 
-int Connection::recv ( void * buffer, size_t len ) {
-	return socket.recv ( buffer, len );
+ConnectionState Connection::getState ( ) {
+	return m_state;
 }
 
-int Connection::send ( const void * buffer, size_t len ) {
-	return socket.send ( buffer, len );
+TCPClient& Connection::getConnection ( ) {
+	return m_connection;
 }
 
-int Connection::close ( ) {
-	return socket.close ();
+WSProtocol& Connection::getProtocol ( ) {
+	return *(WSProtocol*)&m_protocol;
 }
 
-int Connection::handshake ( std::string input, WSAttributes * attributes ) {
-	return protocol->handshake ( input , attributes);
+int Connection::decodedRecv ( IOMsg &recv ) {
+	std::string tmpBuffer; 
+	
+	// Prepare for incoming data
+	tmpBuffer.resize ( max_recv_size );
+
+	// Receive data into tmpBuffer
+	m_connection.recv ( tmpBuffer.data ( ) , max_recv_size );
+
+	// Try and decode
+	tmpBuffer = m_protocol.decode ( tmpBuffer );
+
+	// Check to see if the message was complete or we still need to wait.
+	if ( tmpBuffer.empty ( ) ) {
+		// Nothing was received
+		return 0;
+	}
+		
+	// Data decoded now copy it over to the recv payload.
+	// prepare recv
+	// copy over.
+	memcpy ( recv.getBuffer ( tmpBuffer.size ( ) ).data ( ) , tmpBuffer.data ( ) , tmpBuffer.size ( ) );
+	
+	return 1;
 }
 
-std::string Connection::decode ( const std::string input) {
-	return protocol->decode ( input );
+int Connection::encodedSend ( const char * buffer , int size ) {
+	std::string tmpBuffer ( buffer , size );
+
+	tmpBuffer = m_protocol.encode ( tmpBuffer );
+	m_connection.send ( tmpBuffer.c_str ( ) , tmpBuffer.size ( ) );
+
+	return 1;
 }
 
-std::string Connection::encode ( const std::string input) {
-	return protocol->encode ( input );
+int Connection::handleHandshake ( IOMsg &response ) {
+	try {
+		int bytes;
+		std::vector<char> payload ( max_recv_size );
+		WSAttributes attributes;
+
+		bytes = m_connection.recv ( payload.data ( ) , payload.size ( ) );
+		if ( bytes > 0 ) {				
+			if ( m_protocol.handshake ( payload.data ( ), &attributes ) == 0 ){
+				// (DEBUG)
+				// std::cout<<"[Version] " << attributes.version << std::endl;
+				// std::cout<<"[Channel] " << attributes.channel << std::endl;
+				// std::cout<<"[Response] " << std::endl << attributes.response << std::endl;
+				
+				// Save requested channel
+				m_channel = attributes.channel;
+
+				// Prepare response
+				::memcpy ( response.getBuffer ( attributes.response.length ( ) ).data ( ), attributes.response.data ( ) , attributes.response.length ( ) );
+				m_state = READY;
+				// success
+				return 1;
+			} else {
+				throw LogString ( "malformed handshake received." );
+			}
+		} else {
+			throw LogString ( "error occurred while receiving data." );
+		}
+	} catch ( LogString &e ) {
+		Logit ( "Connection: " + e );
+	}
+	// fail
+	return 0;			
 }
 
-int Connection::appendBuffer ( const std::string input ) {
-	buffer.append ( input );
-	return buffer.size();
+std::string Connection::getChannel ( ) {
+	return m_channel;
 }
 
-int Connection::setBuffer ( const std::string input ) {
-	buffer = input;
-	return buffer.size();
-}
-
-int Connection::packetComplete ( const std::string input ) {
-	return protocol->packetComplete ( input );
-}
-
-unsigned long Connection::packetLength ( const std::string input ) {
-	return protocol->packetRealLength ( input );
-}
-
-const std::string Connection::getBuffer ( ) {
-	return buffer;
-}
+/*
+	std::string Connection::getID ( ) {
+		return uniqueID;
+	}
+*/

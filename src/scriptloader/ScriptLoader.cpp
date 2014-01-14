@@ -10,7 +10,7 @@ ScriptLoader::~ScriptLoader() {
 }
 
 int ScriptLoader::load ( std::string filename ) { 
-	Log ( "ScriptLoader: LOAD " + filename );
+	Logit ( "ScriptLoader: LOAD " + filename );
     luaL_loadfile ( state , filename.c_str() );
     int err_num = lua_pcall ( state, 0, 0, 0 );
     if ( err_num != 0 ) {
@@ -18,13 +18,13 @@ int ScriptLoader::load ( std::string filename ) {
 		if ( err.empty () ) {
 			err = "unrecongnized Lua error";
 		}
-		Log ( "ScriptLoader: LOAD ERROR " + err );
+		Logit ( "ScriptLoader: LOAD ERROR " + err );
 	}
 	return 0;
 }		
 
 int ScriptLoader::loadText ( std::string script ) {
-	Log ( "ScriptLoader: SCRIPT [Not provided due to length]" );
+	Logit ( "ScriptLoader: SCRIPT [Not provided due to length]" );
 	luaL_loadstring ( state, script.c_str() );
 	int err_num = lua_pcall ( state, 0, 0, 0 );
 	if ( err_num != 0 ) {
@@ -32,13 +32,13 @@ int ScriptLoader::loadText ( std::string script ) {
 		if ( err.empty () ) {
 			err = "unrecongnized Lua error";
 		}
-		Log ( "ScriptLoader: LOAD ERROR " + err );
+		Logit ( "ScriptLoader: LOAD ERROR " + err );
 	} 
 	return 0;
 }
 
 int ScriptLoader::loadLib ( std::string filename ) {
-	Log ( "ScriptLoader: LOAD LIB " + filename );
+	Logit ( "ScriptLoader: LOAD LIB " + filename );
 	int err_num = luaL_dofile ( state, filename.c_str() );
 	
 	if ( err_num != 0 ) {
@@ -46,13 +46,13 @@ int ScriptLoader::loadLib ( std::string filename ) {
 		if ( err.empty () ) {
 			err = "unrecongnized Lua error";
 		}
-		Log ( "ScriptLoader: LOAD LIB ERROR " + err );
+		Logit ( "ScriptLoader: LOAD LIB ERROR " + err );
 	} 
 	return 0;
 }
 
 int ScriptLoader::addProc ( lua_CFunction fn, void * arg, const std::string fn_name ) {
-	Log ( "ScriptLoader: REGISTER " + fn_name );
+	Logit ( "ScriptLoader: REGISTER " + fn_name );
 	lua_pushlightuserdata ( state,  arg);
     lua_pushcclosure( state, fn, 1);
     lua_setglobal( state, fn_name.c_str());
@@ -69,7 +69,7 @@ void ScriptLoader::call ( std::string func_name ) {
 		if ( err.empty () ) {
 			err = "unrecongnized Lua error";
 		}
-		Log ( "ScriptLoader: CALL ERROR " + err );
+		Logit ( "ScriptLoader: CALL ERROR " + err );
 	}
 }
 
@@ -89,7 +89,7 @@ void ScriptLoader::call ( std::string func_name, SLArg args ) {
 		if ( err.empty () ) {
 			err = "unrecongnized Lua error";
 		}
-		Log ( "ScriptLoader: CALL ERROR " + err );
+		Logit ( "ScriptLoader: CALL ERROR " + err );
 	}
 }
 
@@ -97,7 +97,7 @@ void ScriptLoader::focusVar ( std::string var_name ) {
 	lua_getglobal(state, var_name.c_str());
 	if (!lua_istable(state, -1)) {
 		//error(L, "`background' is not a valid color table");
-		Log ( "ScriptLoader: Value not found" );
+		Logit ( "ScriptLoader: Value not found" );
 	}
 }
 
@@ -108,7 +108,7 @@ std::string ScriptLoader::getTableValue_str ( std::string key ) {
       	lua_gettable(state, -2);  /* get Table[key] */
       	if (!lua_isstring(state, -1)) {
        		//error(L, "invalid component in background color");
-			Log ( "ScriptLoader: value not a string" );		
+			Logit ( "ScriptLoader: value not a string" );		
 			
 			return result;
 
@@ -126,7 +126,7 @@ int ScriptLoader::getTableValue_int ( std::string key ) {
       	lua_gettable(state, -2);  /* get Table[key] */
       	if (!lua_isnumber(state, -1)) {
        		//error(L, "invalid component in background color");
-			Log ( "ScriptLoader: value not a number" );		
+			Logit ( "ScriptLoader: value not a number" );		
 			
 			return result;
       	}
@@ -139,7 +139,7 @@ int ScriptLoader::getTableValue_int ( std::string key ) {
 int ScriptLoader::getValue_int ( std::string key ) {
 	focusVar ( key );
 	if ( !lua_isnumber(state, -1)) {
-		Log ( "ScriptLoader: value not a number" );
+		Logit ( "ScriptLoader: value not a number" );
 		return -1;
 	}	
 	return lua_tonumber(state, -1);

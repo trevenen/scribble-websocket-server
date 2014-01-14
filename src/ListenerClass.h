@@ -1,49 +1,45 @@
-#include <sys/epoll.h>
+#ifndef LISTENER_HEADER
+#define LISTERER_HEADER
 #include <iostream>
 #include <list>
 #include <map>
 #include <ctime>
-
+#include <vector>
+#include <sys/epoll.h>
 #include "./common/TCPListener.h"
-#include "./common/ThreadClass.h"
-#include "./mysql/MySQL.h"
-#include "./Connection.h"
-#include "./ConnectionsWaiting.h"
-#include "./ChannelSelector.h"
-#include "./Channel.h"
-#include "./scriptloader/ScriptLoader.h"
+#include "./common/TCPClient.h"
+#include "./common/SafeData.h"
+#include "IOMsg.h"
 
-#ifndef LISTENER_HEADER
-#define LISTERER_HEADER
-class ListenerClass : public ThreadClass {
+// Set max processed events
+const int max_proc_events = 50;
+const int max_connections = 1000;
+
+class ListenerClass {
 	public:
-		ListenerClass();
-		void handleConnection(int);
+		ListenerClass(SafeData<IOMsg>*);
 		~ListenerClass();
 
+
+		void start ( int );
 		void setStatus ( int );
-		int usersConnected ( );
-		std::string availableChannels ( );
-
-		int checkForUpdates ( );
+		
 	private:
-		void Setup();
-		void Execute(void *);
-		void doBeat ( );
-		
-		int incomingFD, maxSelectors, status, queue, port;
-		
-		int elapseUpdateCheck;
-		time_t lastUpdateCheck;
+		void setup ( );
+		void run ( );
+		void addConnection ( int );
+		void removeConnection ( int );
+		void handleConnection ( int );
 
-		std::map<std::string, Channel*> channels; //Only one channel for now
-		ConnectionsWaiting connectionsWaiting;		
-		ChannelSelector ** chselect;
-				
-		ScriptLoader config;		
+		int m_incomingFD, m_max_selectors, m_status, m_queue, m_port;
+		int m_events_occuring, m_event_fd;
+		int m_elapse_update_check;
 
-		MySQL appDB;
-		TCPListener listenerSocket;
+		TCPListener m_listener_socket;
+		
+		epoll_event m_ev;
+		std::vector<epoll_event> m_events_list; 
+		SafeData<IOMsg> * m_inqueue;
 };
 
 #endif

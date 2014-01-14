@@ -101,5 +101,5 @@ int MySQL::hasNext ( ) {
 }
 
 void MySQL::log ( std::string msg ) {
-    Log ( "MySQL: " + msg );
+    Logit ( "MySQL: " + msg );
 }

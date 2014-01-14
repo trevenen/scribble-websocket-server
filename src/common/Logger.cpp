@@ -7,7 +7,7 @@ Logger::~Logger ( ) {
 		delete m_Instance;
 	}
 }
-Logger * Logger::Instance ( ) {
+Logger * Logger::getInstance ( ) {
 	if ( !m_Instance ) {
 		m_Instance = new Logger();
 	}
@@ -15,10 +15,14 @@ Logger * Logger::Instance ( ) {
 }
 
 void Logger::print ( LogString output ) {
+
 	FILE * fp = fopen ( "logs/logger.txt" , "a+" );
+	
 	if ( !fp ) {
 		return;
 	}
+	
 	fwrite ( (output+"\n").c_str(), output.length()+1, sizeof( char ) , fp );
+	
 	fclose ( fp );
 } 

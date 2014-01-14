@@ -1,3 +1,5 @@
+#ifndef SCRIPT_LOADER_HEADER
+#define SCRIPT_LOADER_HEADER
 #include <iostream>
 #include <string>
 #include <list>
@@ -9,9 +11,8 @@ extern "C" {
 }
 
 
-#ifndef SCRIPT_LOADER_HEADER
-#define SCRIPT_LOADER_HEADER
 #define SLArg std::list<std::string>
+
 class Lua_State {		
 		lua_State * L;
 	public:  

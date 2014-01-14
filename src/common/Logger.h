@@ -11,7 +11,7 @@ class Logger{
 	public:
 	    ~Logger();
 
-		static Logger * Instance();
+		static Logger * getInstance();
 		void print(LogString);
 	private:
 		Logger(){};
@@ -21,5 +21,6 @@ class Logger{
 		static Logger * m_Instance;
 };
 
-#define Log(o) Logger::Instance()->print(o)
+#define Logit(o) Logger::getInstance()->print(o)
+
 #endif 

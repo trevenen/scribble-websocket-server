@@ -12,8 +12,8 @@ void TCPListener::resetPort(int desc){
 	try{
 		if(setsockopt(desc,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(int))<0)
 			throw LogString("Unable to reuse port");
-	}catch(LogString e){
-			Log("Socket: " + e);
+	}catch(LogString &e){
+			Logit("TCPListener: " + e);
 	}
 }
 
@@ -32,8 +32,8 @@ bool TCPListener::bind(int port){
 				  throw LogString("Unable to bind port");
 			}
 			isBinded = true;
-		}catch(LogString e){
-			Log("Socket: " + e);
+		}catch(LogString &e){
+			Logit("TCPListener: " + e);
 			return false;	
 		}
 	}
@@ -48,8 +48,8 @@ bool TCPListener::listen(int queue){
 				  throw LogString("Unable to listen on port");
 			}
 			isListening = true;
-		}catch(LogString e){
-			Log("Socket: " + e);
+		}catch(LogString &e){
+			Logit("TCPListener: " + e);
 			return false;
 		}
 	}

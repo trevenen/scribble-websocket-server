@@ -1,3 +1,5 @@
+#ifndef CHANNEL_HEADER
+#define CHANNEL_HEADER
 #include <iostream>
 #include <string>
 #include <cstring>
@@ -16,19 +18,12 @@
 //#include "./mongodb/DBMongo.h"
 #include "Connection.h"
 
-#ifndef CHANNEL_HEADER
-#define CHANNEL_HEADER
 /*
 
 Channel:
-	Holds many connections
 	Loads in LUA Script which handles interaction between clients
-	Loads in MongoDB connection to save channel only data
-	
-Todo:
-	Add in MongoDB Wrapper ( MongoDB )
-	Add in the ability to check to see if settings were updated for channel.
 */
+/*
 struct AppDB {
 	int auth;
 	std::string host;
@@ -36,13 +31,20 @@ struct AppDB {
 	std::string username;
 	std::string password;
 };
+
 typedef struct AppDB AppDB;
-class Channel : public ThreadClass { 
+*/
+
+class Channel { 
 	public:
-		Channel ( int , std::string, std::string, AppDB, std::string, unsigned );
+		//Channel ( int , std::string, std::string, AppDB, std::string, unsigned );
+		Channel ( int , std::string, std::string, MySQL* , std::string, unsigned );
 		~Channel ( );
 		
-				
+		//Setup and Runner methods
+		void init ( );
+		void run ( );
+			
 		//User limit reached
 		void limitReached ( Connection * );
 		void setStatus ( int );
@@ -58,8 +60,8 @@ class Channel : public ThreadClass {
 		void handleConnectionBuffers ( );
 
 		//Writing methods
-		int sendTo ( std::string, std::string ); 
-		int broadcast ( std::string, std::string );
+		int sendTo ( std::string , std::string ); 
+		int broadcast ( std::string , std::string );
 
 		/*
 			MongoDB * getDB();
@@ -111,13 +113,14 @@ class Channel : public ThreadClass {
 		std::string scriptFile, scriptUpdate;
 		SemClass sc;
 		//DBMongo appDatabase;
-		MySQL appDatabase;
-		
+		//MySQL appDatabase;
+		MySQL * dbConn;
+
 		std::map<std::string, Connection*> connections; 
 
 		//Thread Polymorphism
-		void Setup();
-		void Execute(void*);
+		//void Setup();
+		//void Execute(void*);
 
 };
 

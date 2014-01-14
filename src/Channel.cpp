@@ -2,21 +2,22 @@
 #include "Channel.h"
 
 
-Channel::Channel ( int cID, std::string dbKey, std::string cname, AppDB appDB, std::string script, unsigned maxConn ) {
+Channel::Channel ( int cID, std::string dbKey, std::string cname, MySQL * dbConn, std::string script, unsigned maxConn ) {
 	this->channelID = cID;
 	this->channelDBKey = dbKey;
 	this->name = cname;	
-	scriptFile = script;
-	maxConnections = maxConn;
-	eventsList = new epoll_event[maxConnections];
+	this->scriptFile = script;
+	this->maxConnections = maxConn;
+	this->dbConn = dbConn;
+	//eventsList = new epoll_event[maxConnections];
 	
 	/*Connect to database server*/
-
 	/* MySQL DB Connection */
-	if ( !appDatabase.connect ( appDB.host , appDB.username , appDB.password , appDB.dbname ) ) {
+
+	/*if ( !appDatabase.connect ( appDB.host , appDB.username , appDB.password , appDB.dbname ) ) {
 		Log ( "Channel: Unable to connect to database ( " + appDB.host + "," + appDB.username + "," + appDB.password + "," + appDB.dbname + " )" );
 		throw "Unable to connect to database" + appDB.host + "," + appDB.username + "," + appDB.password + "," + appDB.dbname + " )";
-	}
+	}*/
 
 	/*
 	MongoDB Setup
@@ -57,8 +58,11 @@ Channel::Channel ( int cID, std::string dbKey, std::string cname, AppDB appDB, s
 	//logicModule.addProc ( &Channel::luaRemove, (void*)this, "remove" );
 	//logicModule.addProc ( &Channel::luaUpdate, (void*)this, "update" );
 	
+	logicModule.loadText ( this->scriptFile );
+	logicModule.call ( "init" );
+	
 	status = 1;
-	ThreadClass::Start(this);
+	//ThreadClass::Start(this);
 }
 
 Channel::~Channel ( ) {
@@ -82,6 +86,83 @@ int Channel::updateScript ( std::string script ) {
 	return 1;
 }
 
+/*
+	init ( ):
+		Setup all necessaries before doing a full run of the Channel.
+*/
+
+void Channel::init ( ) {
+	try {
+		Log ( "Channel " + this->name + " is being setup" );
+		/*
+		eventFD = epoll_create ( 10 );//10 Doesn't mean anything after Linux Kern 2.6.8
+		if ( eventFD<0 ) {
+			  throw LogString("Unable to create an epoll Pipe");
+		}
+		*/
+
+	} catch ( LogString e ) {
+		Log ( "Listener: " + e );
+		std::exit ( 0 );
+	}
+}
+
+void Channel::run ( ) {
+	Connection * conn;
+	std::string msgTemp = "";
+	int buffer_len = 0;
+	char buffer[1024] = {0};
+
+	Log ( "Channel " + this->name + " ready..." );
+	
+	buffer_len = 0;
+	conn = NULL;
+	eventsOccuring = epoll_wait(eventFD, eventsList, 10, 30);
+	if(eventsOccuring < 0){
+		  return;
+	}
+	
+	for ( int ce = 0; ce < eventsOccuring; ce++ ) {
+		conn = ( Connection* ) eventsList[ce].data.ptr;
+		if ( ( buffer_len = conn->recv ( buffer, sizeof ( buffer ) - 1 ) ) == 0 ) {
+			Log ( "User disconnected" ); 
+			removeConnection ( conn->getID() );
+			continue;
+		}else{
+			//std::cout<<"INCOMING SIZE: " << buffer_len << std::endl;
+			//Add incoming data for Connection to its own personal buffer.
+			conn->appendBuffer ( std::string ( buffer, buffer_len ) );
+			//std::cout<<"BUFFER NEW SIZE: " << conn->getBuffer().size() << std::endl;
+			unsigned long msgLength = conn->packetLength ( conn->getBuffer() );
+
+			if ( msgLength != 0 && conn->packetComplete ( conn->getBuffer ( ) ) ) {
+				//std::cout << "PacketComplete: " << std::endl;
+
+				//std::cout<<"HAS PACKET"<<std::endl;
+				//We have a complete packet waiting for us so we need clear it from the buffer.
+				msgTemp = conn->getBuffer ( ).substr ( 0, msgLength );
+				conn->setBuffer (  conn->getBuffer ( ).substr ( msgLength ) );	
+			    //If incoming message is not empty then transmit to logicModule
+			    //decode and check if not empty
+			    //std::cout << "Len: " << msgTemp.size() << std::endl; 
+			    //std::cout << msgTemp << std::endl;
+			    msgTemp = conn->decode( msgTemp );
+			    
+			    if ( !msgTemp.empty() ) {
+					//pass decoded message to logicModule script
+					//std::cout << msgTemp << std::endl;
+					SLArg args;
+					args.push_back ( conn->getID () );
+					args.push_back ( msgTemp );
+					logicModule.call ( "onMessage", args );
+				}
+				
+			}	
+		}
+	}
+}
+
+/*
 void Channel::Setup() {
 	try{		
 		Log ( "Channel " + this->name + " is being setup" );
@@ -90,8 +171,7 @@ void Channel::Setup() {
 		if ( eventFD<0 ) {
 			  throw LogString("Unable to create an epoll Pipe");
 		}
-		logicModule.loadText ( this->scriptFile );
-		logicModule.call ( "init" );
+		
 	}catch ( LogString e ) {
 		Log ( "Listener: " + e );
 		std::exit ( 0 );
@@ -100,72 +180,75 @@ void Channel::Setup() {
 
 void Channel::Execute (void * arg) {
 	while ( status ) {
-	try {
+		try {
 
-		Connection * conn;
-		std::string msgTemp = "";
-		int buffer_len = 0;
-		char buffer[1024] = {0};
+			Connection * conn;
+			std::string msgTemp = "";
+			int buffer_len = 0;
+			char buffer[1024] = {0};
 
-		Log ( "Channel " + this->name + " ready..." );
-		
-		while ( status ) {
-			buffer_len = 0;
-			conn = NULL;
-			eventsOccuring = epoll_wait(eventFD, eventsList, 10, 30);
-			if(eventsOccuring < 0){
-				  Log ( "Channel: Unable to wait 'epoll_wait' error" );
-				  throw LogString ( "Unable to wait 'epoll_wait' error occured" );
-			}
-
-			for ( int ce = 0; ce < eventsOccuring; ce++ ) {
-				conn = ( Connection* ) eventsList[ce].data.ptr;
-				if ( ( buffer_len = conn->recv ( buffer, sizeof ( buffer ) - 1 ) ) == 0 ) {
-					Log ( "User disconnected" ); 
-					removeConnection ( conn->getID() );
-					continue;
-				}else{
-					//std::cout<<"INCOMING SIZE: " << buffer_len << std::endl;
-					//Add incoming data for Connection to its own personal buffer.
-					conn->appendBuffer ( std::string ( buffer, buffer_len ) );
-					//std::cout<<"BUFFER NEW SIZE: " << conn->getBuffer().size() << std::endl;
-					unsigned long msgLength = conn->packetLength ( conn->getBuffer() );
-		
-					if ( msgLength != 0 && conn->packetComplete ( conn->getBuffer ( ) ) ) {
-						//std::cout << "PacketComplete: " << std::endl;
-
-						//std::cout<<"HAS PACKET"<<std::endl;
-						//We have a complete packet waiting for us so we need clear it from the buffer.
-						msgTemp = conn->getBuffer ( ).substr ( 0, msgLength );
-						conn->setBuffer (  conn->getBuffer ( ).substr ( msgLength ) );	
-					    //If incoming message is not empty then transmit to logicModule
-					    //decode and check if not empty
-					    //std::cout << "Len: " << msgTemp.size() << std::endl; 
-					    //std::cout << msgTemp << std::endl;
-					    msgTemp = conn->decode( msgTemp );
-					    
-					    if ( !msgTemp.empty() ) {
-							//pass decoded message to logicModule script
-							//std::cout << msgTemp << std::endl;
-							SLArg args;
-							args.push_back ( conn->getID () );
-							args.push_back ( msgTemp );
-							logicModule.call ( "onMessage", args );
-						}
-						
-					}	
+			Log ( "Channel " + this->name + " ready..." );
+			
+			while ( status ) {
+				buffer_len = 0;
+				conn = NULL;
+				eventsOccuring = epoll_wait(eventFD, eventsList, 10, 30);
+				if(eventsOccuring < 0){
+					  Log ( "Channel: Unable to wait 'epoll_wait' error" );
+					  throw LogString ( "Unable to wait 'epoll_wait' error occured" );
 				}
-			}
-			handleConnectionBuffers ( );
-		}
+				
+				for ( int ce = 0; ce < eventsOccuring; ce++ ) {
+					conn = ( Connection* ) eventsList[ce].data.ptr;
+					if ( ( buffer_len = conn->recv ( buffer, sizeof ( buffer ) - 1 ) ) == 0 ) {
+						Log ( "User disconnected" ); 
+						removeConnection ( conn->getID() );
+						continue;
+					}else{
+						//std::cout<<"INCOMING SIZE: " << buffer_len << std::endl;
+						//Add incoming data for Connection to its own personal buffer.
+						conn->appendBuffer ( std::string ( buffer, buffer_len ) );
+						//std::cout<<"BUFFER NEW SIZE: " << conn->getBuffer().size() << std::endl;
+						unsigned long msgLength = conn->packetLength ( conn->getBuffer() );
+			
+						if ( msgLength != 0 && conn->packetComplete ( conn->getBuffer ( ) ) ) {
+							//std::cout << "PacketComplete: " << std::endl;
 
-	}catch(LogString e) {
-		Log ( "Listener: " + e );		
-		//std::exit(0);
-	}
+							//std::cout<<"HAS PACKET"<<std::endl;
+							//We have a complete packet waiting for us so we need clear it from the buffer.
+							msgTemp = conn->getBuffer ( ).substr ( 0, msgLength );
+							conn->setBuffer (  conn->getBuffer ( ).substr ( msgLength ) );	
+						    //If incoming message is not empty then transmit to logicModule
+						    //decode and check if not empty
+						    //std::cout << "Len: " << msgTemp.size() << std::endl; 
+						    //std::cout << msgTemp << std::endl;
+						    msgTemp = conn->decode( msgTemp );
+						    
+						    if ( !msgTemp.empty() ) {
+								//pass decoded message to logicModule script
+								//std::cout << msgTemp << std::endl;
+								SLArg args;
+								args.push_back ( conn->getID () );
+								args.push_back ( msgTemp );
+								logicModule.call ( "onMessage", args );
+							}
+							
+						}	
+					}
+				}
+
+				handleConnectionBuffers ( );
+			}
+
+			
+
+		}catch(LogString e) {
+			Log ( "Listener: " + e );		
+			//std::exit(0);
+		}
 	}
 }
-
+*/
 void Channel::doBeat ( ) {
 	if ( !scriptUpdate.empty () ) {
 		scriptFile = scriptUpdate;
@@ -179,8 +262,6 @@ void Channel::doBeat ( ) {
 		often without giving a user the commanding control.
 	*/
 	logicModule.call ("onBeat");
-	//Handle any packets that are ready in the queue.
-	handleConnectionBuffers ( );
 }
 
 void Channel::handleConnectionBuffers ( ) {
@@ -303,7 +384,8 @@ void Channel::removeConnection ( std::string uid ) {
 }
 
 MySQL * Channel::getDB() {
-	return &appDatabase;
+	//return &appDatabase;
+	return dbConn;
 }
 
 std::string Channel::getName ( ) {

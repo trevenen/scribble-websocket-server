@@ -1,12 +1,12 @@
 #include "TCPClient.h"
 
-TCPClient::TCPClient ( ) : isConnected ( false ) {
+TCPClient::TCPClient ( ) : isConnected ( 0 ) {
 
 }
 
 TCPClient::TCPClient ( int desc ) {
 	socketDesc = desc;
-	isConnected = true;
+	isConnected = 1;
 }
 
 TCPClient::~TCPClient ( ) {
@@ -33,7 +33,7 @@ int TCPClient::connect ( const char * ip, const char * port ) {
 	    hints.ai_socktype = SOCK_STREAM;
 
 	    if ((rv = getaddrinfo( ip, port, &hints, &servinfo)) != 0) {
-	        throw "getaddrinfo: " + std::string ( gai_strerror(rv) );
+	        throw LogString ( "getaddrinfo: " + std::string ( gai_strerror(rv) ) );
 	    }
 
 	    // loop through all the results and connect to the first we can
@@ -49,23 +49,39 @@ int TCPClient::connect ( const char * ip, const char * port ) {
 	    }
 
 	    if (p == NULL) {
-	        throw "failed to connect";
+	        throw LogString ( "failed to connect" );
 	    }
 
 	    inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), s, sizeof s);
 	    
 	    freeaddrinfo(servinfo); // all done with this structure
+	    
+	    isConnected = 1;
 
-    } catch ( LogString e ) {
-
+    } catch ( LogString &e ) {
+    	Logit ( "TCPClient: " + e );
     }
     return 0;
+}
+
+int TCPClient::peek ( ) {
+	char c_no_purpose;
+	c_no_purpose = ::recv ( socketDesc, &c_no_purpose , 1 , MSG_PEEK );
+	return (c_no_purpose && c_no_purpose!=-1);
 }
 
 int TCPClient::recv ( void * buffer, size_t len ) {
 	return ::recv ( socketDesc, buffer, len, 0 );
 }
 
+int TCPClient::recv ( const void * buffer , size_t len ) {
+	return ::recv ( socketDesc ,  const_cast<void *>(buffer) , len , 0 );
+}
+
 int TCPClient::send ( const void * buffer, size_t len ) {
 	return ::send ( socketDesc, buffer, len, 0 );
+}
+
+int TCPClient::isActive ( ) {
+	return isConnected;
 }

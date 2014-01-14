@@ -11,7 +11,7 @@ class SemClass{
 		  ~SemClass();
 		  int value();
 		  int wait();
-		  int timedWait ( long, time_t );
+		  int timedWait ( struct timespec );
 		  int post();
 	private:
 		  sem_t s;
