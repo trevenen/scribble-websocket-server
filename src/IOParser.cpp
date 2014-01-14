@@ -53,6 +53,9 @@ void IOParser::handleIncoming ( int socket_fd ) {
 			if ( (*m_connections)[socket_fd].decodedRecv ( tmp_packet ) ) {
 				// Data received and ready inside of tmp_packet
 				Logit ( tmp_packet.getBuffer ( ).data ( ) );
+
+				// Pass it off to ChannelManager
+				
 			}
 		} else {
 			// Pending 
