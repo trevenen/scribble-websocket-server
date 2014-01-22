@@ -30,6 +30,7 @@ class ScriptLoader {
 		ScriptLoader();
 		~ScriptLoader();
 		
+		int init ( ); 
 		int load ( std::string );
 		int loadText ( std::string );
 		int loadLib ( std::string );

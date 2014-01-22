@@ -2,81 +2,60 @@
 #define CHANNEL_HEADER
 #include <iostream>
 #include <string>
-#include <cstring>
-#include <cstdlib>
-#include <map>
-#include <sstream>
-#include <sys/epoll.h>
-#include "./common/ThreadClass.h"
-#include "./common/SemaphoreClass.h"
-#include "./common/SocketClass.h"
-#include "./common/Logger.h"
-#include "./protocols/WSProtocol.h"
-#include "./protocols/rfc_6455/RFC_6455.h"
-#include "./scriptloader/ScriptLoader.h"
-#include "./mysql/MySQL.h"
-//#include "./mongodb/DBMongo.h"
-#include "Connection.h"
+#include <list>
+#include <vector>
+#include "common/Logger.h"
+#include "common/SafeData.h"
+#include "common/LockClass.h"
+#include "scriptloader/ScriptLoader.h"
+#include "mysql/MySQL.h"
+#include "IOMsg.h"
 
 /*
 
 Channel:
 	Loads in LUA Script which handles interaction between clients
 */
-/*
-struct AppDB {
-	int auth;
-	std::string host;
-	std::string dbname;
-	std::string username;
-	std::string password;
-};
-
-typedef struct AppDB AppDB;
-*/
 
 class Channel { 
 	public:
-		//Channel ( int , std::string, std::string, AppDB, std::string, unsigned );
-		Channel ( int , std::string, std::string, MySQL* , std::string, unsigned );
+		Channel ( );
+		Channel ( int , std::string, std::string, std::string, unsigned );
 		~Channel ( );
 		
-		//Setup and Runner methods
+		// Setup and Runner methods
 		void init ( );
-		void run ( );
-			
-		//User limit reached
-		void limitReached ( Connection * );
-		void setStatus ( int );
 
-		//Adding clients
-		void addConnection ( Connection * );
-		void removeConnection ( std::string );
-
-		//Events
-		void doBeat ( );
+		// Thread-safety
+		void lock ( );
+		void unlock ( );
 		
-		//Handling Data
-		void handleConnectionBuffers ( );
+		// Queue Setup
+		void setQueues ( SafeData<IOMsg> * );
+		
+		// User limit reached
+		void limitReached ( int );
+		
+		// Adding clients
+		int addConnection ( int , MySQL * );
+		void removeConnection ( int , MySQL * );
 
-		//Writing methods
+		// Events ( Need to be thread safe because updates occur in either )
+		void doBeat ( MySQL * );
+		void parsePacket ( IOMsg &packet , MySQL * );
+
+
+		// Writing methods
 		int sendTo ( std::string , std::string ); 
 		int broadcast ( std::string , std::string );
 
-		/*
-			MongoDB * getDB();
-		*/
-		
-		//Get DB Handle
-		MySQL * getDB();
-
-		//Channel Information
-		int usersConnected ( );
+		// Channel Information
 		std::string getName ( );
-		std::string getDBKey ( );
+		std::string getDatabaseKey ( );
+		MySQL * getDatabase ( );
 		int getID ( );
 		
-		/*LUA Module Interaction*/
+		// LUA Module Interaction
 		std::string currentScript ( );
 		int updateScript ( std::string );
 		
@@ -89,38 +68,28 @@ class Channel {
 		static int luaLog ( lua_State * );
 		
 		/*DB LUA API Callback*/
-		
 		static int luaStore ( lua_State * );
 		static int luaGet ( lua_State * );
-		
-		/*
-		static int luaInsert ( lua_State * );
-		static int luaUpdate ( lua_State * );
-		static int luaQuery ( lua_State * );
-		static int luaRemove ( lua_State * );
-		static int luaCountQuery ( lua_State * );
-		*/
 
+		static std::string intToString ( int integer ) {
+			std::stringstream stream;
+			stream << integer;
+			return stream.str(); 
+		}
 	private:
-		int channelID;
-		int eventsOccuring, eventFD, incomingFD, status;
-		unsigned maxConnections;
-		epoll_event ev, *eventsList; 
-		ScriptLoader logicModule;
-
-		std::string name; //channel name
-		std::string channelDBKey;
-		std::string scriptFile, scriptUpdate;
-		SemClass sc;
-		//DBMongo appDatabase;
-		//MySQL appDatabase;
-		MySQL * dbConn;
-
-		std::map<std::string, Connection*> connections; 
-
-		//Thread Polymorphism
-		//void Setup();
-		//void Execute(void*);
+		int m_id;
+		unsigned m_max_connections;
+		
+		std::string m_name;
+		std::string m_database_key;
+		std::string m_script_file, m_script_update;
+		std::list<int> m_channel_connections;
+		
+		ScriptLoader * m_handler;
+		SafeData<IOMsg> * m_outqueue;
+		//ScriptLoader m_handler;
+		MySQL * m_database;
+		LockClass m_lock;
 
 };
 

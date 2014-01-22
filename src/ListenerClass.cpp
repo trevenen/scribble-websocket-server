@@ -3,7 +3,7 @@
 #include <cstdio>
 
 
-ListenerClass::ListenerClass ( SafeData<IOMsg> * inQ ) : m_inqueue(inQ) {
+ListenerClass::ListenerClass ( ) {
 
 }
 
@@ -13,6 +13,15 @@ ListenerClass::~ListenerClass ( ) {
 
 void ListenerClass::setStatus ( int s ) {	
 	m_status = s;
+}
+
+void ListenerClass::setConnections ( std::vector<Connection> * connections ) {
+	m_connections = connections;
+}
+
+void ListenerClass::setQueues ( SafeData<IOMsg> * in_queue , SafeData<IOMsg> * disconnection_queue ) {
+	m_inqueue = in_queue;
+	m_disconnection_queue = disconnection_queue;
 }
 
 void ListenerClass::handleConnection ( int socket_fd ){
@@ -85,6 +94,12 @@ void ListenerClass::run ( ) {
 			
 			m_events_occuring = epoll_wait ( m_event_fd , m_events_list.data ( ) , m_events_list.size ( ) , -1);
 			
+			// Check disconnection Queue, and quickly disconnect everyone and remove from queue.
+			while ( m_disconnection_queue->wait ( 0 ) == 0 ) {
+				IOMsg tmp_packet = m_disconnection_queue->pop ( );
+				removeConnection ( tmp_packet.getConnectionID ( ) );
+			}
+
 			// make sure there are events
 			if ( m_events_occuring <= 0 ) {
 				  continue;
@@ -98,7 +113,6 @@ void ListenerClass::run ( ) {
 					if ( ( incoming_fd = m_listener_socket.accept() ) > 0) {
 						// Logit ( "Listener: New Connection." );
 						addConnection ( incoming_fd );
-						
 					}
 				} else 
 				// Peek to see if a disconnection occurred.
@@ -138,12 +152,9 @@ void ListenerClass::addConnection ( int socket_fd ) {
 			return;
 		}
 
-		//Pass around new connection to system
-		IOMsg packet ( socket_fd , CONNECTED );
-		m_inqueue->push ( packet );
-		m_inqueue->signal ( ); // Signal workers
-
-		//Logit ( "Connection has been added" );
+		// Set Connection ( socket_fd ) as a active.
+		(*m_connections)[socket_fd].setConnection ( socket_fd );
+		// Logit ( "Connection has been added" );
 	} catch ( LogString &e ) { 
 		Logit("Listener: "+ e);
 	}
@@ -157,9 +168,9 @@ void ListenerClass::removeConnection ( int socket_fd ) {
 		}
 
 		// Disconnect socket around the server
-		IOMsg packet ( socket_fd , DISCONNECTED );
-		m_inqueue->push ( packet );
-		m_inqueue->signal ( ); // Signal workers
+		(*m_connections)[socket_fd].reset ( );
+
+		// Logit ( "Disconnection occurred" );
 	} catch ( LogString &e ) {
 		Logit ( "Listener: " + e );
 	}

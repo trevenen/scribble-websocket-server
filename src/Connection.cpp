@@ -2,10 +2,11 @@
 
 Connection::Connection ( ) {
 	m_state = NEW;
+	m_incoming_buffer.clear ( );
 }
 
 Connection::~Connection ( ) {
-
+	m_incoming_buffer.clear ( );
 }
 
 void Connection::setConnection ( int socket_fd ) {
@@ -25,6 +26,7 @@ void Connection::setState ( enum ConnectionState state ) {
 void Connection::reset ( ) {
 	m_state = NEW;
 	m_connection.close ( );
+	m_incoming_buffer.clear ( );
 }
 
 ConnectionState Connection::getState ( ) {
@@ -40,16 +42,24 @@ WSProtocol& Connection::getProtocol ( ) {
 }
 
 int Connection::decodedRecv ( IOMsg &recv ) {
-	std::string tmpBuffer; 
-	
+	std::string recvBuffer, tmpBuffer;
 	// Prepare for incoming data
-	tmpBuffer.resize ( max_recv_size );
+	recvBuffer.resize ( max_recv_size );
 
 	// Receive data into tmpBuffer
-	m_connection.recv ( tmpBuffer.data ( ) , max_recv_size );
+	m_connection.recv ( recvBuffer.data ( ) , max_recv_size );
+	
+	// Lock to make m_incoming_buffer access, thread-safe
+	m_incoming_lock.lock ( );
+	
+	// Save data to m_incoming_buffer
+	m_incoming_buffer += recvBuffer;
 
 	// Try and decode
-	tmpBuffer = m_protocol.decode ( tmpBuffer );
+	tmpBuffer = m_protocol.decode ( m_incoming_buffer );	
+	
+	// unlock here
+	m_incoming_lock.unlock ( );
 
 	// Check to see if the message was complete or we still need to wait.
 	if ( tmpBuffer.empty ( ) ) {
@@ -112,9 +122,3 @@ int Connection::handleHandshake ( IOMsg &response ) {
 std::string Connection::getChannel ( ) {
 	return m_channel;
 }
-
-/*
-	std::string Connection::getID ( ) {
-		return uniqueID;
-	}
-*/

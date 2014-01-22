@@ -7,7 +7,9 @@ class LockClass{
 		LockClass();
 	   ~LockClass();
 		void lock();
+		int trylock ( );
 		void unlock();
+
 	private:
 		pthread_mutex_t plock;
 };

@@ -1,405 +1,227 @@
-#include <cerrno>
 #include "Channel.h"
 
+Channel::Channel ( ) {
 
-Channel::Channel ( int cID, std::string dbKey, std::string cname, MySQL * dbConn, std::string script, unsigned maxConn ) {
-	this->channelID = cID;
-	this->channelDBKey = dbKey;
-	this->name = cname;	
-	this->scriptFile = script;
-	this->maxConnections = maxConn;
-	this->dbConn = dbConn;
-	//eventsList = new epoll_event[maxConnections];
-	
-	/*Connect to database server*/
-	/* MySQL DB Connection */
+}
 
-	/*if ( !appDatabase.connect ( appDB.host , appDB.username , appDB.password , appDB.dbname ) ) {
-		Log ( "Channel: Unable to connect to database ( " + appDB.host + "," + appDB.username + "," + appDB.password + "," + appDB.dbname + " )" );
-		throw "Unable to connect to database" + appDB.host + "," + appDB.username + "," + appDB.password + "," + appDB.dbname + " )";
-	}*/
-
-	/*
-	MongoDB Setup
-	if ( !appDatabase.connect ( appDB.host ) ) {
-		Log ( "Channel: Unable to connect to database" );
-		throw "Unable to connect to database";
-	}
-
-	if ( appDB.auth ) {
-		if ( !appDatabase.auth ( appDB.dbname, appDB.username, appDB.password ) ) {
-			Log ( "Channel: Unable to authorize into to database" );
-			throw "Unable to auth into database";
-		}
-	}
-	
-	appDatabase.useDB ( appDB.dbname );
-	*/
-
-
-
-	/*Loading in extra libraries*/
-	logicModule.loadLib ( "lualibs/json.lua" );
-	/*Logger LUA API*/
-	logicModule.addProc ( &Channel::luaLog, (void*)this, "log" );
-	/*Channel LUA API*/
-	logicModule.addProc ( &Channel::luaBroadcast, (void*)this,"broadcast" ); //Add broadcast
-	logicModule.addProc ( &Channel::luaDisconnectUser, (void*)this, "disconnectUser" );
-	logicModule.addProc ( &Channel::luaSendTo, (void*)this, "sendTo" );
-	
-	/*MYSQL LUA API*/
-	logicModule.addProc ( &Channel::luaStore, (void*)this, "storeid" );
-	logicModule.addProc ( &Channel::luaGet, (void*)this, "getid" );
-	
-	/*MongoDB LUA API*/
-	//logicModule.addProc ( &Channel::luaCountQuery, (void*)this, "countQuery" );
-	//logicModule.addProc ( &Channel::luaQuery, (void*)this, "query" );
-	//logicModule.addProc ( &Channel::luaInsert, (void*)this, "insert" );
-	//logicModule.addProc ( &Channel::luaRemove, (void*)this, "remove" );
-	//logicModule.addProc ( &Channel::luaUpdate, (void*)this, "update" );
-	
-	logicModule.loadText ( this->scriptFile );
-	logicModule.call ( "init" );
-	
-	status = 1;
-	//ThreadClass::Start(this);
+Channel::Channel ( int id, std::string key, std::string name, std::string script_file, unsigned max_connections ) {
+	m_id = id;
+	m_name = name;	
+	m_database_key = key;
+	m_database = NULL;
+	m_handler = NULL;
+	m_script_file = script_file;
+	m_max_connections = max_connections;
 }
 
 Channel::~Channel ( ) {
-	connections.clear();
+	if ( m_handler ) {
+		delete m_handler;
+	}
 }
 
-int Channel::usersConnected ( ) {
-	return connections.size ( );
+void Channel::init ( ) {
+	// So ugly.... ew.... refactor this later..
+    m_handler = new ScriptLoader ( );
+
+	// Loading in extra libraries
+	m_handler->loadLib ( "lualibs/json.lua" );
+
+	// Register Logger LUA API
+	m_handler->addProc ( &Channel::luaLog, (void*)this, "log" );
+	
+	// Register Channel LUA API
+	m_handler->addProc ( &Channel::luaBroadcast, (void*)this,"broadcast" ); //Add broadcast
+	m_handler->addProc ( &Channel::luaDisconnectUser, (void*)this, "disconnectUser" );
+	m_handler->addProc ( &Channel::luaSendTo, (void*)this, "sendTo" );
+	
+	// Register MYSQL LUA API
+	m_handler->addProc ( &Channel::luaStore, (void*)this, "storeid" );
+	m_handler->addProc ( &Channel::luaGet, (void*)this, "getid" );
+	m_handler->loadText ( m_script_file );
+
+	// Call LUA API Init
+	m_handler->call ( "init" );
+	
 }
 
-void Channel::setStatus ( int  s ) {
-	status = s;
+void Channel::lock ( ) {
+	m_lock.lock ( );
+}
+
+void Channel::unlock ( ) {
+	m_lock.unlock ( );
+}
+
+void Channel::setQueues ( SafeData<IOMsg> * outQ ) {
+	m_outqueue = outQ;
 }
 
 std::string Channel::currentScript ( ) {
-	return scriptFile;
+	return m_script_file;
 }
 
 int Channel::updateScript ( std::string script ) {
-	scriptUpdate = script;
+	m_script_update = script;
 	return 1;
 }
 
-/*
-	init ( ):
-		Setup all necessaries before doing a full run of the Channel.
-*/
-
-void Channel::init ( ) {
+void Channel::parsePacket ( IOMsg &packet , MySQL * database) {
 	try {
-		Log ( "Channel " + this->name + " is being setup" );
-		/*
-		eventFD = epoll_create ( 10 );//10 Doesn't mean anything after Linux Kern 2.6.8
-		if ( eventFD<0 ) {
-			  throw LogString("Unable to create an epoll Pipe");
-		}
-		*/
-
-	} catch ( LogString e ) {
-		Log ( "Listener: " + e );
-		std::exit ( 0 );
-	}
-}
-
-void Channel::run ( ) {
-	Connection * conn;
-	std::string msgTemp = "";
-	int buffer_len = 0;
-	char buffer[1024] = {0};
-
-	Log ( "Channel " + this->name + " ready..." );
-	
-	buffer_len = 0;
-	conn = NULL;
-	eventsOccuring = epoll_wait(eventFD, eventsList, 10, 30);
-	if(eventsOccuring < 0){
-		  return;
-	}
-	
-	for ( int ce = 0; ce < eventsOccuring; ce++ ) {
-		conn = ( Connection* ) eventsList[ce].data.ptr;
-		if ( ( buffer_len = conn->recv ( buffer, sizeof ( buffer ) - 1 ) ) == 0 ) {
-			Log ( "User disconnected" ); 
-			removeConnection ( conn->getID() );
-			continue;
-		}else{
-			//std::cout<<"INCOMING SIZE: " << buffer_len << std::endl;
-			//Add incoming data for Connection to its own personal buffer.
-			conn->appendBuffer ( std::string ( buffer, buffer_len ) );
-			//std::cout<<"BUFFER NEW SIZE: " << conn->getBuffer().size() << std::endl;
-			unsigned long msgLength = conn->packetLength ( conn->getBuffer() );
-
-			if ( msgLength != 0 && conn->packetComplete ( conn->getBuffer ( ) ) ) {
-				//std::cout << "PacketComplete: " << std::endl;
-
-				//std::cout<<"HAS PACKET"<<std::endl;
-				//We have a complete packet waiting for us so we need clear it from the buffer.
-				msgTemp = conn->getBuffer ( ).substr ( 0, msgLength );
-				conn->setBuffer (  conn->getBuffer ( ).substr ( msgLength ) );	
-			    //If incoming message is not empty then transmit to logicModule
-			    //decode and check if not empty
-			    //std::cout << "Len: " << msgTemp.size() << std::endl; 
-			    //std::cout << msgTemp << std::endl;
-			    msgTemp = conn->decode( msgTemp );
-			    
-			    if ( !msgTemp.empty() ) {
-					//pass decoded message to logicModule script
-					//std::cout << msgTemp << std::endl;
-					SLArg args;
-					args.push_back ( conn->getID () );
-					args.push_back ( msgTemp );
-					logicModule.call ( "onMessage", args );
-				}
-				
-			}	
-		}
-	}
-}
-
-/*
-void Channel::Setup() {
-	try{		
-		Log ( "Channel " + this->name + " is being setup" );
-
-		eventFD = epoll_create ( 10 );//10 Doesn't mean anything after Linux Kern 2.6.8
-		if ( eventFD<0 ) {
-			  throw LogString("Unable to create an epoll Pipe");
-		}
 		
-	}catch ( LogString e ) {
-		Log ( "Listener: " + e );
-		std::exit ( 0 );
-	}
-}
+		// Provide a temporary gateway to the Channel Database
+		m_database = database;
 
-void Channel::Execute (void * arg) {
-	while ( status ) {
-		try {
-
-			Connection * conn;
-			std::string msgTemp = "";
-			int buffer_len = 0;
-			char buffer[1024] = {0};
-
-			Log ( "Channel " + this->name + " ready..." );
-			
-			while ( status ) {
-				buffer_len = 0;
-				conn = NULL;
-				eventsOccuring = epoll_wait(eventFD, eventsList, 10, 30);
-				if(eventsOccuring < 0){
-					  Log ( "Channel: Unable to wait 'epoll_wait' error" );
-					  throw LogString ( "Unable to wait 'epoll_wait' error occured" );
-				}
-				
-				for ( int ce = 0; ce < eventsOccuring; ce++ ) {
-					conn = ( Connection* ) eventsList[ce].data.ptr;
-					if ( ( buffer_len = conn->recv ( buffer, sizeof ( buffer ) - 1 ) ) == 0 ) {
-						Log ( "User disconnected" ); 
-						removeConnection ( conn->getID() );
-						continue;
-					}else{
-						//std::cout<<"INCOMING SIZE: " << buffer_len << std::endl;
-						//Add incoming data for Connection to its own personal buffer.
-						conn->appendBuffer ( std::string ( buffer, buffer_len ) );
-						//std::cout<<"BUFFER NEW SIZE: " << conn->getBuffer().size() << std::endl;
-						unsigned long msgLength = conn->packetLength ( conn->getBuffer() );
-			
-						if ( msgLength != 0 && conn->packetComplete ( conn->getBuffer ( ) ) ) {
-							//std::cout << "PacketComplete: " << std::endl;
-
-							//std::cout<<"HAS PACKET"<<std::endl;
-							//We have a complete packet waiting for us so we need clear it from the buffer.
-							msgTemp = conn->getBuffer ( ).substr ( 0, msgLength );
-							conn->setBuffer (  conn->getBuffer ( ).substr ( msgLength ) );	
-						    //If incoming message is not empty then transmit to logicModule
-						    //decode and check if not empty
-						    //std::cout << "Len: " << msgTemp.size() << std::endl; 
-						    //std::cout << msgTemp << std::endl;
-						    msgTemp = conn->decode( msgTemp );
-						    
-						    if ( !msgTemp.empty() ) {
-								//pass decoded message to logicModule script
-								//std::cout << msgTemp << std::endl;
-								SLArg args;
-								args.push_back ( conn->getID () );
-								args.push_back ( msgTemp );
-								logicModule.call ( "onMessage", args );
-							}
-							
-						}	
-					}
-				}
-
-				handleConnectionBuffers ( );
-			}
-
-			
-
-		}catch(LogString e) {
-			Log ( "Listener: " + e );		
-			//std::exit(0);
-		}
-	}
-}
-*/
-void Channel::doBeat ( ) {
-	if ( !scriptUpdate.empty () ) {
-		scriptFile = scriptUpdate;
-		scriptUpdate = "";
-		logicModule.loadText ( this->scriptFile );
-		Log ( "Channel: Reloaded script" );
-	}
-			
-	/* 
-		Giving LUA Module onBeat method will give it life more 
-		often without giving a user the commanding control.
-	*/
-	logicModule.call ("onBeat");
-}
-
-void Channel::handleConnectionBuffers ( ) {
-	std::map<std::string, Connection*>::iterator it;
-	Connection * conn;
-	std::string msgTemp;
-
-	for ( it = connections.begin(); it != connections.end(); it ++ ) {
-		conn = it->second;
-		//Call decode if return is empty string buffer isn't ready to be decoded.
+		// Setup call for API onMessage Event
+		SLArg handler_args;
+		handler_args.push_back ( packet.getConnectionIDstr ( ) );
+		handler_args.push_back ( packet.getBuffer ( ).data ( ) );
 		
-		unsigned long msgLength = conn->packetLength ( conn->getBuffer() );
-		//if ( msgLength != 0 ) {
-			//std::cout << "----------------------------------" << std::endl;
-			//std::cout<<msgLength<<std::endl;
-			//std::cout<<conn->getBuffer ( ).size ( )<<std::endl;
-		//}
-		if ( msgLength != 0 && conn->packetComplete ( conn->getBuffer ( ) ) ) {
-			//std::cout << "PacketComplete: " << std::endl;
+		// Call API onMessage Event
+		//m_handler.call ( "onMessage" , handler_args );		
 
-			//std::cout<<"HAS PACKET"<<std::endl;
-			//We have a complete packet waiting for us so we need clear it from the buffer.
-			msgTemp = conn->getBuffer ( ).substr ( 0, msgLength );
-			conn->setBuffer (  conn->getBuffer ( ).substr ( msgLength ) );	
-		    //If incoming message is not empty then transmit to logicModule
-		    //decode and check if not empty
-		    //std::cout << "Len: " << msgTemp.size() << std::endl; 
-		    //std::cout << msgTemp << std::endl;
-		    msgTemp = conn->decode( msgTemp );
-		    
-		    if ( !msgTemp.empty() ) {
-				//pass decoded message to logicModule script
-				//std::cout << msgTemp << std::endl;
-				SLArg args;
-				args.push_back ( conn->getID () );
-				args.push_back ( msgTemp );
-				logicModule.call ( "onMessage", args );
-			}
+		// Remove access for the Channel Database
+		m_database = NULL;
+		
+	} catch ( LogString &e ) {
+		Logit ( "Channel: " + e );
+	}
+}
+
+void Channel::doBeat ( MySQL * database ) {
+	try {
+		// Provide a temporary gateway to the Channel Database
+		m_database = database;
+		
+		// Update current run-time LUA Script.
+		if ( !m_script_update.empty () ) {
+			m_script_file = m_script_update;
+			m_script_update = "";
+			// Call LUA and reload script
+			m_handler->loadText ( m_script_file );
 			
+			// Should probably do a call for an onUpdate Event
+			// Later. 
 		}
+			
+		// Call onBeat Event to give life to the script :)
+		m_handler->call ("onBeat");
+
+		
+	} catch ( LogString &e ) {
+		Logit ( "Channel: " + e );
 	}
 }
 
 int Channel::broadcast ( std::string uid, std::string buffer ) {
 	std::string msg;
-	std::map<std::string, Connection*>::iterator it;
-	//std::cout << buffer.size() << std::endl;
-	for ( it = connections.begin(); it != connections.end(); it ++ ) {
+	std::list<int>::iterator it;
+	
+	for ( it = m_channel_connections.begin(); it != m_channel_connections.end(); it ++ ) {
 		//encode message for every connection because the connection version could be different.
-		if ( it->second->getID().compare ( uid ) != 0 ) {
-			msg = it->second->encode ( buffer );
-			it->second->send ( msg.c_str(), msg.length() );
+		if ( intToString ( *it ).compare ( uid ) != 0 ) {
+			IOMsg tmp_packet ( *it );
+			::memcpy ( tmp_packet.getBuffer ( buffer.size ( ) ).data ( ) , buffer.data ( ) , buffer.size ( ) );
+			m_outqueue->push ( tmp_packet );
+			m_outqueue->signal ( );
 		}
 	}
 	return 1;
 }
 
 int Channel::sendTo ( std::string uid, std::string buffer ) {
-	std::map<std::string, Connection*>::iterator conn = connections.find ( uid );
-	if ( conn!=connections.end() ) {
-		std::string msg = conn->second->encode ( buffer );
-		conn->second->send ( msg.c_str(), msg.length() );
+	std::list<int>::iterator it;
+	for ( it = m_channel_connections.begin(); it != m_channel_connections.end(); it ++ ) {
+		//encode message for every connection because the connection version could be different.
+		if ( intToString ( *it ).compare ( uid ) == 0 ) {
+			IOMsg tmp_packet ( *it );
+			::memcpy ( tmp_packet.getBuffer ( buffer.size ( ) ).data ( ) , buffer.data ( ) , buffer.size ( ) );
+			m_outqueue->push ( tmp_packet );
+			m_outqueue->signal ( );
+			break;
+		}
 	}
 
 	return 1;
 }
 
-void Channel::limitReached ( Connection * conn ) {
-	//Disconnect user and send a User limit reached message
-	std::string msg = "User limit reached!";
-	msg = conn->encode ( msg );
-	conn->send ( msg.c_str(), msg.length ( ) );
-	conn->close ( );
-	delete conn;
+void Channel::limitReached ( int socket_fd ) {
+	IOMsg tmp_packet ( socket_fd , DISCONNECT );
+	m_outqueue->push ( tmp_packet );
+	m_outqueue->signal ( );
 }
 
-void Channel::addConnection ( Connection * conn ) {
+int Channel::addConnection ( int socket_fd , MySQL * database ) {
 	try{
+		
+		m_database = database;
 		//Check to see if max connections has been reached.
-		if ( this->maxConnections <= connections.size ( ) ) {
+		if ( m_max_connections <= m_channel_connections.size ( ) ) {
 			//If so then disconnect user.
-			limitReached ( conn );
-			return;
-		} 
-		int retEv = 0;
-		ev.events = EPOLLIN | EPOLLET;
-		ev.data.fd = conn->getSocket();
-		ev.data.ptr = (void*)conn;
-		if((retEv = epoll_ctl(eventFD, EPOLL_CTL_ADD, conn->getSocket(), &ev))!=0) {
-			perror ( "epoll_ctl" );
-			throw LogString ( "Unable to add connection" );
+			limitReached ( socket_fd );
+			return 0;
 		}
-		connections.insert ( std::pair<std::string, Connection*> (conn->getID(), conn) );
+
+		// Add new connection to Channel Connections
+		m_channel_connections.push_back ( socket_fd );
+
+		// Send to LUA API onConnect Event
 		SLArg args;
-		args.push_back ( conn->getID() );
-		logicModule.call ( "onConnect", args );
-		Log ( getName() + ": Connection has been added" );
+		args.push_back ( intToString ( socket_fd ) );
+		m_handler->call ( "onConnect", args );
+		//Logit ( getName() + ": Connection has been added" );
+		
+		// Remove database information
+		m_database = NULL;
+		
 	}catch(LogString e){
-		Log("Listener: " + e);
+		Logit ( "Channel: " + e );
 	}
 
+	return 1;
 }
 
-void Channel::removeConnection ( std::string uid ) {
+
+void Channel::removeConnection ( int socket_fd , MySQL * database ) {
 	try {
-		if (  connections.find ( uid ) != connections.end() ) {
-			Connection * conn = connections[uid];
-			SLArg args;
-			args.push_back ( uid );
-			logicModule.call ( "onDisconnect", args );
-			if ( epoll_ctl ( eventFD, EPOLL_CTL_DEL, conn->getSocket(), NULL ) > 0 ){
-				throw LogString ( "Unable to remove connection" );
-			}
-			conn->close ( );
-			connections.erase ( uid ); //Connection is closed and free'd
-		}
-	} catch ( LogString e ) {
-		Log ( "Listener: " + e );
-	}
-}
+		
+		// Set temporary Database
+		m_database = database;
 
-MySQL * Channel::getDB() {
-	//return &appDatabase;
-	return dbConn;
+		// Remove Connection from Channel Connections
+		m_channel_connections.remove ( socket_fd );
+
+		// Call LUA onDisconnect event with given socket_fd
+		SLArg args;
+		args.push_back ( intToString ( socket_fd ) );
+		m_handler->call ( "onDisconnect", args );
+
+		// Remove database information
+		m_database = NULL;
+		
+		
+	} catch ( LogString e ) {
+		Logit ( "Channel: " + e );
+	}
 }
 
 std::string Channel::getName ( ) {
-	return this->name;
+	return m_name;
 }
 
 int Channel::getID ( ) {
-	return this->channelID;
+	return m_id;
 }
 
-std::string Channel::getDBKey ( ) {
-	return this->channelDBKey;
+std::string Channel::getDatabaseKey ( ) {
+	return m_database_key;
 }
 
+MySQL * Channel::getDatabase ( ) {
+	return m_database;
+}
+
+// Scribble LUA API Callbacks
 int Channel::luaBroadcast ( lua_State* state ) {
 	Channel * pthis = (Channel*)lua_touserdata( state, lua_upvalueindex(1));
 	std::string connID = lua_tostring ( state, 1 );
@@ -412,7 +234,7 @@ int Channel::luaBroadcast ( lua_State* state ) {
 int Channel::luaDisconnectUser ( lua_State * state ) {
 	Channel * pthis = (Channel*)lua_touserdata ( state, lua_upvalueindex(1) );
 	std::string id = lua_tostring ( state, -1 );
-	pthis->removeConnection ( id );
+	pthis->removeConnection ( atoi ( id.c_str ( ) ) , pthis->getDatabase ( ) );
 	return 1;
 };
 
@@ -426,21 +248,20 @@ int Channel::luaSendTo ( lua_State * state ) {
 };
 
 int Channel::luaLog ( lua_State * state ) {
-	Log ( "Lua: " + std::string ( lua_tostring (state, -1 ) ) );
+	Logit ( "Lua: " + std::string ( lua_tostring (state, -1 ) ) );
 	return 1;
 };
 
-//MySQL Extension for LUA
-
-//Story a given value as a string with a key and Channel ID
+// MySQL API for LUA
+// Store a given value as a string with a key and Channel ID
 int Channel::luaStore ( lua_State * state ) {
 	Channel * pthis = (Channel*) lua_touserdata ( state, lua_upvalueindex (1) );
-	MySQL * db = pthis->getDB ( );
+	MySQL * db = pthis->getDatabase ( );
 	
 	std::string key = lua_tostring ( state, 1 );
 	std::string value = lua_tostring ( state, 2 );
 
-	std::string dbKey = pthis->getDBKey ( );
+	std::string dbKey = pthis->getDatabaseKey ( );
 	
 	
 	//Check to see if key is inside database
@@ -468,13 +289,13 @@ int Channel::luaStore ( lua_State * state ) {
 //Story a given value as a string with a key and Channel ID
 int Channel::luaGet ( lua_State * state ) {
 	Channel * pthis = (Channel*) lua_touserdata ( state, lua_upvalueindex (1) );
-	MySQL * db = pthis->getDB ( );
+	MySQL * db = pthis->getDatabase ( );
 	
 	std::string key = lua_tostring ( state, 1 );
 	std::string value = lua_tostring ( state, 2 );
 
 
-	std::string dbKey = pthis->getDBKey ( );
+	std::string dbKey = pthis->getDatabaseKey ( );
 
 	//Check to see if key is inside database
 	if ( db->query ( "SELECT value FROM appData WHERE key = '" + key + dbKey + "'" ) ) {
@@ -491,94 +312,3 @@ int Channel::luaGet ( lua_State * state ) {
 
 	return 1;
 }
-
-
-
-/*
-
-Deprecated: (EXPENSIVE)
-DBMongo Lua Extension
-
-int Channel::luaInsert ( lua_State * state ) {
-	Channel * pthis = (Channel*) lua_touserdata ( state, lua_upvalueindex (1) );
-	DBMongo * db = pthis->getDB ( );
-	std::string table = lua_tostring ( state, 1 );
-	std::string newData = lua_tostring ( state, 2 );
-	
-	if ( !db->insert ( table, newData ) ) {
-		//error
-		lua_pushnumber ( state, 0 );
-	}
-
-	lua_pushnumber ( state, 1 );
-	return 1;
-}
-
-int Channel::luaUpdate ( lua_State * state ) {
-	Channel * pthis = (Channel*) lua_touserdata ( state, lua_upvalueindex (1) );
-	DBMongo * db = pthis->getDB ( );
-	std::string table = lua_tostring ( state, 1 );
-	std::string where = lua_tostring ( state, 2 );
-	std::string update = lua_tostring ( state, 3 );
-	if ( !db->update ( table, where, update ) ) {
-		//error
-		lua_pushnumber ( state, 0 );
-	}
-	
-	lua_pushnumber ( state, 1 );
-	
-	return 1;
-}
-
-int Channel::luaQuery ( lua_State * state ) {
-	Channel * pthis = (Channel*) lua_touserdata ( state, lua_upvalueindex (1) );
-	DBMongo * db = pthis->getDB ( );
-	std::string table = lua_tostring ( state, 1 );
-	std::string where = lua_tostring ( state, 2 );
-	
-	
-	if ( !db->query ( table, where ) ) {
-		lua_pushstring ( state, "Error occured" );
-	} 
-	
-	lua_newtable ( state ); 
-
-	for (int i = 0; db->hasNext ( ); i ++ ) {
-		lua_pushnumber ( state, i );
-		lua_pushstring ( state, db->next ().c_str() );
-		lua_rawset ( state, -3 );
-	}
-
-	return 1;
-}
-
-int Channel::luaRemove ( lua_State * state ) {
-	Channel * pthis = (Channel*) lua_touserdata ( state, lua_upvalueindex (1) );
-	DBMongo * db = pthis->getDB ( );
-	std::string table = lua_tostring ( state, 1 );
-	std::string what = lua_tostring ( state, 2 );
-	if ( !db->remove ( table, what ) ) {
-		//error
-		lua_pushnumber ( state, 0 );
-	}
-
-	lua_pushnumber ( state, 1 );
-	return 1;
-}
-
-int Channel::luaCountQuery ( lua_State * state ) {
-	Channel * pthis = (Channel*) lua_touserdata ( state, lua_upvalueindex (1) );
-	DBMongo * db = pthis->getDB ( );
-	std::string table = lua_tostring ( state, 1 );
-	std::string query = lua_tostring ( state, 2 );
-	int count = 0;
-	if ( !(count=db->count ( table, query )) ) {
-		//error
-		lua_pushnumber ( state, 0 );
-	}
-
-	lua_pushnumber ( state, count );
-	return 1;
-}
-
-*/

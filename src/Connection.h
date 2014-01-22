@@ -3,17 +3,19 @@
 #include <iostream>
 #include <string>
 #include <cstring>
-#include "./common/TCPClient.h"
-#include "./protocols/WSProtocol.h"
-#include "./protocols/rfc_6455/RFC_6455.h"
-#include "./IOMsg.h"
+#include "common/TCPClient.h"
+#include "common/LockClass.h"
+#include "protocols/WSProtocol.h"
+#include "protocols/rfc_6455/RFC_6455.h"
+#include "IOMsg.h"
 
 const int max_recv_size = 1024; // maximum receive size: 65535 (MAX SHORT)
 
 enum ConnectionState { 
 	NEW,
 	PENDING,
-	READY
+	READY,
+	INCHANNEL
 };
 
 class Connection {
@@ -30,36 +32,22 @@ class Connection {
 
 		TCPClient& getConnection ( );
 
-		// It can contain other protocols... but
+		// It can contain other protocols... but we will keep it a strict
 		WSProtocol& getProtocol ( );
 		int handleHandshake ( IOMsg& );
-
+		
 		std::string getChannel ( );
 
 		int decodedRecv ( IOMsg& );
 		int encodedSend ( const char * buffer , int size );
-		
-		/*		
-		inline static void gen_random(char *s, const int len) {
-		    static const char alphanum[] =
-		        "0123456789"
-		        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-		        "abcdefghijklmnopqrstuvwxyz";
-
-		    for (int i = 0; i < len; ++i) {
-		        s[i] = alphanum[rand() % (sizeof(alphanum) - 1)];
-		    }
-
-		    s[len] = 0;
-		}
-		*/
 
 	private:
-		//std::string uniqueID;
 		TCPClient m_connection;
 		RFC_6455 m_protocol;
 		std::string m_channel;
 
+		std::string m_incoming_buffer;  // Used for parsing longer packets, that may come from several packets
+		LockClass m_incoming_lock;
 		ConnectionState m_state;
 };
 

@@ -9,9 +9,12 @@ int main ( int argc , char ** args ){
 		scribble.run ( );
 		std::cout<<"Scribble is shutting down."<<std::endl;
 		
+	} catch ( LogString &e ) {
+		// Hopefully this will never be called.
+		Logit ( "Main: " + e );
 	} catch (const char * e) {
-		//Expand on this more.
-		std::cout<<"Error: "<<e<<std::endl;
+		// Severe because error is not typed.
+		Logit ( "Main: (SEVERE) " + LogString ( e ) );
 	}
 
 	return 0;

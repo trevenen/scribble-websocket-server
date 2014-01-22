@@ -10,7 +10,7 @@ ScriptLoader::~ScriptLoader() {
 }
 
 int ScriptLoader::load ( std::string filename ) { 
-	Logit ( "ScriptLoader: LOAD " + filename );
+	//Logit ( "ScriptLoader: LOAD " + filename );
     luaL_loadfile ( state , filename.c_str() );
     int err_num = lua_pcall ( state, 0, 0, 0 );
     if ( err_num != 0 ) {
@@ -24,7 +24,7 @@ int ScriptLoader::load ( std::string filename ) {
 }		
 
 int ScriptLoader::loadText ( std::string script ) {
-	Logit ( "ScriptLoader: SCRIPT [Not provided due to length]" );
+	//Logit ( "ScriptLoader: SCRIPT [Not provided due to length]" );
 	luaL_loadstring ( state, script.c_str() );
 	int err_num = lua_pcall ( state, 0, 0, 0 );
 	if ( err_num != 0 ) {
@@ -52,7 +52,7 @@ int ScriptLoader::loadLib ( std::string filename ) {
 }
 
 int ScriptLoader::addProc ( lua_CFunction fn, void * arg, const std::string fn_name ) {
-	Logit ( "ScriptLoader: REGISTER " + fn_name );
+	//Logit ( "ScriptLoader: REGISTER " + fn_name );
 	lua_pushlightuserdata ( state,  arg);
     lua_pushcclosure( state, fn, 1);
     lua_setglobal( state, fn_name.c_str());
@@ -60,7 +60,7 @@ int ScriptLoader::addProc ( lua_CFunction fn, void * arg, const std::string fn_n
 }
 
 void ScriptLoader::call ( std::string func_name ) {
-	//Log ( "ScriptLoader: CALL " + func_name );
+	//Logit ( "ScriptLoader: CALL " + func_name );
 	lua_getglobal ( state , func_name.c_str() ) ;
     int err_num = lua_pcall ( state, 0, 0, 0 );
 	
@@ -74,7 +74,7 @@ void ScriptLoader::call ( std::string func_name ) {
 }
 
 void ScriptLoader::call ( std::string func_name, SLArg args ) {
-	//Log ( "ScriptLoader: CALL " + func_name + " (..args..)" );
+	Logit ( "ScriptLoader: CALL " + func_name + " (..args..)" );
 	std::string response;
 
 	lua_getglobal ( state , func_name.c_str() ) ;

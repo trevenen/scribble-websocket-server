@@ -1,13 +1,17 @@
 #ifndef IO_MSG_HEADER
 #define IO_MSG_HEADER
 #include <vector>
-#include "./common/SocketClass.h"
+#include <cstdio>
+#include "common/SocketClass.h"
 
 enum IOMsgStates {
 	NORMAL,
+	NOT_ENCODED,
+	BROADCAST,
+	BROADCAST_ENCODED,
 	CONNECTED,
 	DISCONNECTED,
-	ENCODED
+	DISCONNECT
 };
 
 class IOMsg {
@@ -36,6 +40,12 @@ class IOMsg {
 
 		int getConnectionID ( ) {
 			return m_connection;
+		}
+
+		std::string getConnectionIDstr ( ) {
+			std::stringstream stream;
+			stream << m_connection;
+			return stream.str(); 
 		}
 
 		void setState ( enum IOMsgStates state ) {

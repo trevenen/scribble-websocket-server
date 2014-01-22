@@ -5,42 +5,22 @@ IOParser::IOParser ( ) {
 }
 
 IOParser::~IOParser ( ) {
-
+	m_status = 0;
 }
 
 void IOParser::setConnections ( std::vector<Connection> * connections ) { 
 	m_connections = connections;
 }
 
-void IOParser::setQueues ( SafeData<IOMsg> * inQ ,  SafeData<IOMsg> * outQ ,  SafeData<IOMsg> * channelQ ) {
+void IOParser::setQueues ( SafeData<IOMsg> * inQ ,  SafeData<IOMsg> * outQ ,  SafeData<IOMsg> * channelQ , SafeData<IOMsg> * disconnectionQ ) {
 	m_inqueue = inQ;
 	m_outqueue = outQ;
 	m_channelqueue = channelQ;
+	m_disconnection_queue = disconnectionQ;
 }
 
 void IOParser::setStatus ( int status ) {
 	m_status = status;
-}
-
-void IOParser::newConnection ( int socket_fd ) {
-	try {
-		(*m_connections)[socket_fd].setConnection ( socket_fd );
-		// Notify a Channel Manager of a new user :)
-		//....still needs work
-	} catch ( LogString &e ) {
-		Logit ( "IOParser: " + e );
-		disconnectedConnection ( socket_fd );
-	}
-}
-
-void IOParser::disconnectedConnection ( int socket_fd ) {
-	try {
-		// Close and reset connection at given socket id for reuse.
-		(*m_connections)[socket_fd].reset ( );
-		// Create message to notify Channel Manager
-	} catch ( LogString &e ) {
-		Logit ( "IOParser: " + e );
-	}
 }
 
 void IOParser::handleIncoming ( int socket_fd ) {
@@ -48,24 +28,35 @@ void IOParser::handleIncoming ( int socket_fd ) {
 		IOMsg tmp_packet ( socket_fd );
 		
 		// recv data
-		if ( (*m_connections)[socket_fd].getState ( ) == READY ) {
+		if ( (*m_connections)[socket_fd].getState ( ) == INCHANNEL ) {
 			// Check if data can be decoded
+			// If it fails it gets saved into an internal buffer inside Connection for the next packet.
 			if ( (*m_connections)[socket_fd].decodedRecv ( tmp_packet ) ) {
 				// Data received and ready inside of tmp_packet
 				Logit ( tmp_packet.getBuffer ( ).data ( ) );
 
-				// Pass it off to ChannelManager
-				
+				// Pass it off to a ChannelParser
+				m_channelqueue->push ( tmp_packet );
+				m_channelqueue->signal ( );
 			}
 		} else {
 			// Pending 
 			// Process as a handshake ;)
 			if ( !(*m_connections)[socket_fd].handleHandshake(tmp_packet) ) {
-				disconnectedConnection ( socket_fd );
+				(*m_connections)[socket_fd].reset ( );
 				throw LogString ( "issue handling handshake occurred." );
 			}
+			Logit ( "STATE: READY" );
+			// Set Connection state to READY
+			(*m_connections)[socket_fd].setState ( READY );
+
+			// notify ChannelParser of new connection
+			IOMsg new_user_packet ( socket_fd , CONNECTED );
+			m_channelqueue->push ( new_user_packet );
+			m_channelqueue->signal ( );
 
 			// Queue handshake response
+			tmp_packet.setState ( NOT_ENCODED );
 			m_outqueue->push ( tmp_packet );
 			m_outqueue->signal ( );
 		}
@@ -84,7 +75,7 @@ void IOParser::handleOutgoing ( IOMsg &packet ) {
 			throw LogString ( "Invalidated connection." ); // Log it..
 		}
 		
-		if ( packet.getState ( ) == ENCODED ) {
+		if ( packet.getState ( ) != NOT_ENCODED ) {
 			// Send data out.
 			(*m_connections)[packet.getConnectionID ( )].encodedSend ( packet.getBuffer ( ).data ( ), packet.getBuffer ( ).size ( ) );
 		} else {
@@ -93,6 +84,11 @@ void IOParser::handleOutgoing ( IOMsg &packet ) {
 	} catch ( LogString &e ) {
 		Logit ( "IOParser: " + e );
 	}
+}
+
+void IOParser::handleDisconnection ( IOMsg &packet ) {
+	m_disconnection_queue->push ( packet );
+	m_disconnection_queue->signal ( );
 }
 
 void IOParser::Setup ( ) {
@@ -105,24 +101,12 @@ void IOParser::Execute ( void * args ) {
 		while ( m_status ) {
 			if ( !m_inqueue->wait ( 1 ) ) { // need try wait.
 				IOMsg tmp_packet = m_inqueue->pop ( );
-
-				switch ( tmp_packet.getState ( ) ) {
-					case CONNECTED:
-						{
-							newConnection ( tmp_packet.getConnectionID ( ) );
-						}
-					break;
-					case DISCONNECTED:
-						{ 
-							// Logit ( "Disconnected User" );
-							disconnectedConnection ( tmp_packet.getConnectionID ( ) );
-						}
+				switch ( tmp_packet.getState ( ) ) {		
+					case DISCONNECT:
+						handleDisconnection ( tmp_packet );
 					break;
 					default:
-						{
-							// Logit ( "Normal" );
-							handleIncoming ( tmp_packet.getConnectionID ( ) );
-						}
+						handleIncoming ( tmp_packet.getConnectionID ( ) );
 				}
 			} else 
 			if ( !m_outqueue->wait ( 1 ) ) { // need try wait.

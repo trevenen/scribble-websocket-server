@@ -9,7 +9,7 @@ EFLAGS=$(SCRIPTLOADER-EFLAGS) $(SQLSCHEMA-EFLAGS)
 LDFLAGS= -pthread
 DIRS= scriptloader mysql 
 BUILDDIRS= $(DIRS:%=%)
-SOURCES=main.cpp Scribble.h Scribble.cpp ListenerClass.h ListenerClass.cpp Connection.h Connection.cpp IOParser.h IOParser.cpp IOMsg.h ./protocols/WSProtocol.h ./protocols/rfc_6455/RFC_6455.h ./protocols/rfc_6455/RFC_6455.cpp ./protocols/rfc_6455/sha1/sha1.h ./protocols/rfc_6455/sha1/sha1.cpp ./protocols/rfc_6455/base64/base64.c ./protocols/rfc_6455/base64/base64.h ./common/SafeData.h ./common/Logger.cpp ./common/Logger.h ./common/SocketClass.h ./common/SocketClass.cpp ./common/TCPClient.h ./common/TCPClient.cpp ./common/TCPListener.h ./common/TCPListener.cpp ./common/ThreadClass.cpp ./common/ThreadClass.h ./common/SemaphoreClass.cpp ./common/SemaphoreClass.h ./common/LockClass.cpp ./common/LockClass.h
+SOURCES=main.cpp Scribble.h Scribble.cpp ListenerClass.h ListenerClass.cpp Channel.h Channel.cpp ChannelParser.h ChannelParser.cpp Connection.h Connection.cpp IOParser.h IOParser.cpp IOMsg.h ./protocols/WSProtocol.h ./protocols/rfc_6455/RFC_6455.h ./protocols/rfc_6455/RFC_6455.cpp ./protocols/rfc_6455/sha1/sha1.h ./protocols/rfc_6455/sha1/sha1.cpp ./protocols/rfc_6455/base64/base64.c ./protocols/rfc_6455/base64/base64.h ./common/SafeData.h ./common/Logger.cpp ./common/Logger.h ./common/SocketClass.h ./common/SocketClass.cpp ./common/TCPClient.h ./common/TCPClient.cpp ./common/TCPListener.h ./common/TCPListener.cpp ./common/ThreadClass.cpp ./common/ThreadClass.h ./common/SemaphoreClass.cpp ./common/SemaphoreClass.h ./common/LockClass.cpp ./common/LockClass.h
 OBJECTS= $(SOURCES:.cpp=.o)
 EXECUTABLE= Scribble
 SCRIPTLOADER_PATH= $(SCRIPTLOADER:%=scriptloader/%) 
